@@ -1,0 +1,50 @@
+# Dependencies
+/node_modules
+/.pnp
+.pnp.js
+.yarn/cache
+
+# Testing
+/coverage
+
+# Next.js build output
+/.next/
+/out/
+/build
+
+# Debug logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+next.log
+
+# Environment files
+.env
+.env*.local
+
+# TypeScript build info
+*.tsbuildinfo
+next-env.d.ts
+
+# SQLite / Local Databases & Backups
+*.db
+*.db-*
+*.db.bak*
+prisma/*.db*
+prisma/prisma/
+
+# Uploads directory contents (preserve folder structure via .gitkeep)
+public/uploads/*
+!public/uploads/.gitkeep
+public/uploads/avatars/*
+!public/uploads/avatars/.gitkeep
+
+# OS / Editor temporary files
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+51a32f1792d37d5ddd3b46f0e243e2ee.jpg

@@ -1,0 +1,172 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+model User {
+  id             String   @id @default(cuid())
+  name           String
+  username       String   @unique
+  email          String?  @unique
+  password       String
+  role           String   @default("STAFF") // Strict 3-Tier Hierarchy: "ADMIN" (highest), "MANAGEMENT" (middle), "STAFF" (base)
+  position       String   @default("Staff Member")
+  department     String   @default("Creative") // "Creative", "Project Management", "Administration", "Business Development"
+  isApproved     Boolean  @default(false)
+  isSuspended    Boolean  @default(false)
+  avatarUrl      String?
+  bio            String?
+  tasks          Task[]   @relation("TasksAssignedTo")
+  delegatedTasks Task[]   @relation("TasksCreatedBy")
+  reviewedTasks  Task[]   @relation("TasksReviewedBy")
+  notifications  Notification[]
+  profileRequests    ProfileUpdateRequest[]
+  passwordRequests   PasswordResetRequest[]
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+model Project {
+  id              String               @id @default(cuid())
+  code            String               @unique
+  name            String
+  clientName      String
+  status          String               @default("ACTIVE") // "PITCH", "ACTIVE", "IN_REVIEW", "DELIVERED", "ON_HOLD"
+  priority        String               @default("HIGH")   // "LOW", "MEDIUM", "HIGH", "URGENT"
+  brief           String
+  goals           String
+  description     String
+  category        String               @default("Digital Campaign")
+  startDate       DateTime?
+  deadline        DateTime?
+  budget          String?
+  previewUrl      String?
+  pitchDeckUrl    String?
+  creativeDeckUrl String?
+  finalAssetsUrl  String?
+  deliverables    ProjectDeliverable[]
+  tasks           Task[]
+  createdById     String?
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+}
+
+model ProjectDeliverable {
+  id        String   @id @default(cuid())
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  title     String
+  url       String
+  type      String   @default("OTHER") // "PREVIEW", "PITCH_DECK", "CREATIVE_DECK", "FINAL_ASSET", "OTHER"
+  status    String   @default("ACTIVE")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([projectId])
+}
+
+model Task {
+  id                   String         @id @default(cuid())
+  title                String
+  description          String?
+  status               String         @default("To Do") // "To Do", "On Progress", "In Review", "Revision", "Done"
+  priority             String         @default("MEDIUM")  // "LOW", "MEDIUM", "HIGH", "URGENT"
+  dueDate              DateTime?
+  estimatedHours       Float?         @default(4.0)
+  userId               String
+  user                 User           @relation("TasksAssignedTo", fields: [userId], references: [id], onDelete: Cascade)
+  createdById          String?
+  createdBy            User?          @relation("TasksCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  reviewerId           String?
+  reviewer             User?          @relation("TasksReviewedBy", fields: [reviewerId], references: [id], onDelete: SetNull)
+  previewDescription   String?
+  projectId            String?
+  project              Project?       @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  completedAt          DateTime?
+  
+  // Timer & Revision Telemetry
+  initialSeconds       Int            @default(0)
+  totalSeconds         Int            @default(0)
+  timerActive          Boolean        @default(false)
+  timerStartedAt       DateTime?
+  currentPhase         String         @default("INITIAL") // "INITIAL", "REVISION"
+  currentRevisionRound Int            @default(0)
+  revisions            TaskRevision[]
+
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+
+  @@index([userId])
+  @@index([createdById])
+  @@index([reviewerId])
+  @@index([projectId])
+  @@index([status])
+  @@index([userId, status])
+}
+
+model TaskRevision {
+  id             String    @id @default(cuid())
+  taskId         String
+  task           Task      @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  round          Int
+  feedback       String
+  seconds        Int       @default(0)
+  timerActive    Boolean   @default(false)
+  timerStartedAt DateTime?
+  status         String    @default("PENDING") // "PENDING", "IN_PROGRESS", "DELIVERED", "APPROVED"
+  createdAt      DateTime  @default(now())
+  deliveredAt    DateTime?
+
+  @@index([taskId])
+  @@index([taskId, round])
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String
+  message   String
+  type      String   @default("INFO") // "TASK_ASSIGNED", "TASK_DELIVERED", "TASK_REVISION", "TASK_APPROVED", "TASK_DONE", "INFO"
+  link      String?
+  taskId    String?
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([userId, read])
+}
+
+model ProfileUpdateRequest {
+  id                 String   @id @default(cuid())
+  userId             String
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  requestedName      String
+  requestedUsername  String
+  requestedAvatarUrl String?
+  status             String   @default("PENDING") // "PENDING", "APPROVED", "REJECTED"
+  adminNote          String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@index([userId])
+  @@index([status])
+}
+
+model PasswordResetRequest {
+  id                 String   @id @default(cuid())
+  userId             String
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  hashedPassword     String   // The bcrypt hashed new password awaiting approval
+  status             String   @default("PENDING") // "PENDING", "APPROVED", "REJECTED"
+  adminNote          String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@index([userId])
+  @@index([status])
+}
