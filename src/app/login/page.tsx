@@ -41,7 +41,20 @@ export default function LoginPage() {
       setError(result.error || "Login failed");
       setLoading(false);
     } else {
-      if (result.role === "ADMIN") {
+      // Periksa apakah terdapat parameter `from` dari middleware
+      const searchParams = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
+      const from = searchParams?.get("from");
+
+      if (from && from.startsWith("/") && !from.startsWith("//")) {
+        const isRestrictedForStaff = from.startsWith("/admin") || from.startsWith("/management");
+        if (result.role === "STAFF" && isRestrictedForStaff) {
+          router.push("/dashboard");
+        } else if (result.role === "MANAGEMENT" && from.startsWith("/admin")) {
+          router.push("/management");
+        } else {
+          router.push(from);
+        }
+      } else if (result.role === "ADMIN") {
         router.push("/admin/users");
       } else if (result.role === "MANAGEMENT") {
         router.push("/management");
