@@ -1,8 +1,14 @@
 import { cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
 import bcrypt from "bcryptjs";
+import {
+  SESSION_COOKIE_NAME,
+  createSessionToken,
+  verifySessionToken,
+  type SessionPayload,
+} from "@/lib/session";
 
-export const SESSION_COOKIE_NAME = "locomotion_session";
+export { SESSION_COOKIE_NAME };
 
 export interface SessionUser {
   id: string;
@@ -19,7 +25,7 @@ export interface SessionUser {
 }
 
 /**
- * Retrieves the currently logged-in user from the session cookie.
+ * Retrieves the currently logged-in user from the signed session cookie.
  */
 export async function getCurrentUser(): Promise<SessionUser | null> {
   const cookieStore = cookies();
@@ -30,17 +36,11 @@ export async function getCurrentUser(): Promise<SessionUser | null> {
   }
 
   try {
-    const rawVal = sessionCookie.value.includes("%")
-      ? decodeURIComponent(sessionCookie.value)
-      : sessionCookie.value;
-    const parsed = JSON.parse(
-      Buffer.from(rawVal, "base64").toString("utf-8")
-    );
-
-    if (!parsed?.id) return null;
+    const payload = await verifySessionToken(sessionCookie.value);
+    if (!payload?.id) return null;
 
     const user = await prisma.user.findUnique({
-      where: { id: parsed.id },
+      where: { id: payload.id },
       select: {
         id: true,
         name: true,
@@ -63,8 +63,8 @@ export async function getCurrentUser(): Promise<SessionUser | null> {
       return null;
     }
 
-    // Unapproved users (except Admin) cannot access the system
-    if (!user.isApproved && user.role !== "ADMIN") {
+    // Unapproved users cannot access the system
+    if (!user.isApproved) {
       return null;
     }
 
@@ -76,13 +76,17 @@ export async function getCurrentUser(): Promise<SessionUser | null> {
 }
 
 /**
- * Creates a session cookie for the given user.
+ * Creates a cryptographically signed session cookie for the given user.
  */
-export function setSessionCookie(user: { id: string; username: string; role: string }) {
+export async function setSessionCookie(user: {
+  id: string;
+  username: string;
+  role: "ADMIN" | "MANAGEMENT" | "STAFF";
+}) {
   const cookieStore = cookies();
-  const serialized = Buffer.from(JSON.stringify(user)).toString("base64");
-  
-  cookieStore.set(SESSION_COOKIE_NAME, serialized, {
+  const token = await createSessionToken(user);
+
+  cookieStore.set(SESSION_COOKIE_NAME, token, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",
