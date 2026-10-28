@@ -13,6 +13,18 @@ import {
 import { getTierFromPosition } from "@/lib/departments";
 import { revalidatePath } from "next/cache";
 
+export type UserRole = "ADMIN" | "MANAGEMENT" | "STAFF";
+
+export interface SessionUserData {
+  id: string;
+  name: string;
+  username: string;
+  email?: string | null;
+  role: UserRole;
+  position: string;
+  department: string;
+}
+
 export async function loginAction(formData: FormData) {
   const username = formData.get("username") as string;
   const password = formData.get("password") as string;
@@ -58,21 +70,21 @@ export async function loginAction(formData: FormData) {
     };
   }
 
-  setSessionCookie({
+  await setSessionCookie({
     id: user.id,
     username: user.username,
-    role: user.role,
+    role: user.role as "ADMIN" | "MANAGEMENT" | "STAFF",
   });
 
   revalidatePath("/", "layout");
   return {
     success: true,
-    role: user.role,
+    role: user.role as "ADMIN" | "MANAGEMENT" | "STAFF",
     user: {
       id: user.id,
       name: user.name,
       username: user.username,
-      role: user.role,
+      role: user.role as "ADMIN" | "MANAGEMENT" | "STAFF",
       position: user.position,
       department: user.department,
     },
@@ -173,7 +185,7 @@ export async function registerAction(formData: FormData) {
       name: newUser.name,
       username: newUser.username,
       email: newUser.email,
-      role: newUser.role,
+      role: newUser.role as "ADMIN" | "MANAGEMENT" | "STAFF",
       position: newUser.position,
       department: newUser.department,
     },
@@ -308,7 +320,7 @@ export async function getAdminUsersAction() {
     name: u.name,
     username: u.username,
     email: u.email,
-    role: u.role,
+    role: u.role as "ADMIN" | "MANAGEMENT" | "STAFF",
     position: u.position,
     department: u.department,
     avatarUrl: u.avatarUrl,
@@ -451,10 +463,10 @@ export async function updateProfileAction(formData: FormData) {
       },
     });
 
-    setSessionCookie({
+    await setSessionCookie({
       id: updated.id,
       username: updated.username,
-      role: updated.role,
+      role: updated.role as "ADMIN" | "MANAGEMENT" | "STAFF",
     });
 
     revalidatePath("/", "layout");
