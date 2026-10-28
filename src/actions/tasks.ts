@@ -797,10 +797,10 @@ export async function updateTaskAction(formData: FormData) {
     const task = await prisma.task.findUnique({ where: { id: taskId } });
     if (!task) return { success: false, error: "Task not found" };
 
-    // Rule: Penerima task tidak boleh edit, edit hanya untuk pemberi task
-    const isPemberiTask = !task.createdById || task.createdById === currentUser.id;
+    // Rule: Penerima task tidak boleh edit, edit hanya untuk pemberi task atau Management/Admin
+    const isPemberiTask = Boolean(task.createdById && task.createdById === currentUser.id);
     if (currentUser.role !== "MANAGEMENT" && currentUser.role !== "ADMIN" && !isPemberiTask) {
-      return { success: false, error: "Akses ditolak: Hanya pemberi task yang dapat mengedit task ini." };
+      return { success: false, error: "Akses ditolak: Hanya pemberi task atau Management yang dapat mengedit task ini." };
     }
 
     const updatedUserId =
@@ -857,10 +857,10 @@ export async function deleteTaskAction(taskId: string) {
     const task = await prisma.task.findUnique({ where: { id: taskId } });
     if (!task) return { success: false, error: "Task not found" };
 
-    // Rule: Penerima task tidak boleh hapus, hapus hanya untuk pemberi task
-    const isPemberiTask = !task.createdById || task.createdById === currentUser.id;
+    // Rule: Penerima task tidak boleh hapus, hapus hanya untuk pemberi task atau Management/Admin
+    const isPemberiTask = Boolean(task.createdById && task.createdById === currentUser.id);
     if (currentUser.role !== "MANAGEMENT" && currentUser.role !== "ADMIN" && !isPemberiTask) {
-      return { success: false, error: "Akses ditolak: Hanya pemberi task yang dapat menghapus task ini." };
+      return { success: false, error: "Akses ditolak: Hanya pemberi task atau Management yang dapat menghapus task ini." };
     }
 
     await prisma.task.delete({ where: { id: taskId } });

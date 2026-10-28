@@ -3,6 +3,7 @@
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
 import { revalidatePath } from "next/cache";
+import { isValidDeliverableUrl } from "@/lib/security";
 
 export async function getProjects(filterStatus?: string) {
   const whereClause: any = {};
@@ -251,8 +252,8 @@ export async function createProjectAction(formData: FormData) {
 
 export async function updateProjectUrlsAction(formData: FormData) {
   const user = await getCurrentUser();
-  if (!user) {
-    return { success: false, error: "Authentication required." };
+  if (!user || (user.role !== "MANAGEMENT" && user.role !== "ADMIN")) {
+    return { success: false, error: "Akses ditolak: Hanya Management atau Admin yang berhak mengubah URL project." };
   }
 
   const projectId = formData.get("projectId") as string;
@@ -263,6 +264,23 @@ export async function updateProjectUrlsAction(formData: FormData) {
 
   if (!projectId) {
     return { success: false, error: "Project ID is required." };
+  }
+
+  // Validate all URLs to prevent script injection (javascript: protocols)
+  const urlFields = [
+    { name: "Preview Link", val: previewUrl },
+    { name: "Pitch Deck Link", val: pitchDeckUrl },
+    { name: "Creative Deck Link", val: creativeDeckUrl },
+    { name: "Final Assets Link", val: finalAssetsUrl },
+  ];
+
+  for (const field of urlFields) {
+    if (field.val && field.val.trim().length > 0 && !isValidDeliverableUrl(field.val)) {
+      return {
+        success: false,
+        error: `Format URL untuk ${field.name} tidak valid atau menggunakan protokol berbahaya.`,
+      };
+    }
   }
 
   await prisma.project.update({
@@ -282,8 +300,8 @@ export async function updateProjectUrlsAction(formData: FormData) {
 
 export async function updateCategoryUrlsAction(formData: FormData) {
   const user = await getCurrentUser();
-  if (!user) {
-    return { success: false, error: "Authentication required." };
+  if (!user || (user.role !== "MANAGEMENT" && user.role !== "ADMIN")) {
+    return { success: false, error: "Akses ditolak: Hanya Management atau Admin yang berhak mengubah deliverables project." };
   }
 
   const projectId = formData.get("projectId") as string;
@@ -304,6 +322,18 @@ export async function updateCategoryUrlsAction(formData: FormData) {
     try {
       const parsed = JSON.parse(payload);
       if (Array.isArray(parsed)) {
+        // Validate each item's URL to prevent javascript: or malformed URLs
+        for (const item of parsed) {
+          if (item && item.url && item.url.trim().length > 0) {
+            if (!isValidDeliverableUrl(item.url)) {
+              return {
+                success: false,
+                error: `URL "${item.url}" tidak valid atau menggunakan protokol yang tidak diizinkan.`,
+              };
+            }
+          }
+        }
+
         const hasAnyContent = parsed.some(
           (item: any) =>
             (item.url && item.url.trim().length > 0) ||
@@ -314,6 +344,9 @@ export async function updateCategoryUrlsAction(formData: FormData) {
         }
       }
     } catch {
+      if (!isValidDeliverableUrl(payload)) {
+        return { success: false, error: "URL tidak valid atau berbahaya." };
+      }
       valueToStore = payload;
     }
   }
@@ -455,12 +488,20 @@ export async function addDeliverableAction(formData: FormData) {
   if (!user) return { success: false, error: "Unauthorized" };
 
   const projectId = formData.get("projectId") as string;
-  const title = formData.get("title") as string;
-  const url = formData.get("url") as string;
+  const title = (formData.get("title") as string)?.trim();
+  const url = (formData.get("url") as string)?.trim();
   const type = (formData.get("type") as string) || "OTHER";
 
   if (!projectId || !title || !url) {
     return { success: false, error: "Title and URL are required." };
+  }
+
+  // Validate deliverable URL strictly on the server
+  if (!isValidDeliverableUrl(url)) {
+    return {
+      success: false,
+      error: "URL Deliverable tidak valid atau menggunakan protokol yang dilarang.",
+    };
   }
 
   await prisma.projectDeliverable.create({
@@ -479,7 +520,9 @@ export async function addDeliverableAction(formData: FormData) {
 
 export async function deleteDeliverableAction(deliverableId: string, projectId: string) {
   const user = await getCurrentUser();
-  if (!user) return { success: false, error: "Unauthorized" };
+  if (!user || (user.role !== "MANAGEMENT" && user.role !== "ADMIN")) {
+    return { success: false, error: "Akses ditolak: Hanya Management atau Admin yang berhak menghapus deliverable." };
+  }
 
   await prisma.projectDeliverable.delete({
     where: { id: deliverableId },

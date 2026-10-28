@@ -10,6 +10,7 @@ import {
 } from "@/lib/auth";
 import { getTierFromPosition } from "@/lib/departments";
 import { revalidatePath } from "next/cache";
+import { validateImageMagicBytes, isValidAvatarUrl } from "@/lib/security";
 
 export type UserRole = "ADMIN" | "MANAGEMENT" | "STAFF";
 
@@ -366,36 +367,30 @@ export async function uploadAvatarAction(formData: FormData) {
     };
   }
 
-  // Validate MIME type
-  const allowedMimeTypes: Record<string, string> = {
-    "image/jpeg": "image/jpeg",
-    "image/jpg": "image/jpeg",
-    "image/png": "image/png",
-    "image/webp": "image/webp",
-    "image/gif": "image/gif",
-  };
-
-  const normalizedMimeType = allowedMimeTypes[file.type.toLowerCase()];
-  if (!normalizedMimeType) {
-    return {
-      success: false,
-      error: "Format file tidak didukung. Harap unggah foto dengan format JPG, JPEG, PNG, WebP, atau GIF.",
-    };
-  }
-
   try {
-    // Target user id if admin is uploading for another staff
-    const targetUserId =
-      (currentUser.role === "MANAGEMENT" || currentUser.role === "ADMIN") && formData.get("targetUserId")
-        ? (formData.get("targetUserId") as string)
-        : currentUser.id;
-
-    // Convert uploaded image file buffer into a Base64 Data URL string
+    // 1. Convert uploaded image into binary buffer
     const buffer = Buffer.from(await file.arrayBuffer());
-    const base64Data = buffer.toString("base64");
-    const base64Url = `data:${normalizedMimeType};base64,${base64Data}`;
 
-    // Save this Base64 string directly into the database column for the user's profile picture / avatar URL
+    // 2. Strict Server-Side Binary Magic Bytes Verification
+    // Do NOT trust client file.type or file extension. Verify actual binary header & signatures.
+    const inspection = validateImageMagicBytes(buffer);
+    if (!inspection.isValid) {
+      return {
+        success: false,
+        error: inspection.error || "File yang diunggah bukan file gambar yang valid.",
+      };
+    }
+
+    // 3. Strictly restrict targetUserId permission
+    const requestedTargetUserId = formData.get("targetUserId") as string | null;
+    const isElevated = currentUser.role === "MANAGEMENT" || currentUser.role === "ADMIN";
+    const targetUserId = isElevated && requestedTargetUserId ? requestedTargetUserId : currentUser.id;
+
+    // 4. Construct canonical Base64 Data URL using server-verified MIME type
+    const base64Data = buffer.toString("base64");
+    const base64Url = `data:${inspection.mime};base64,${base64Data}`;
+
+    // 5. Save verified Base64 image to database
     await prisma.user.update({
       where: { id: targetUserId },
       data: {
@@ -410,13 +405,13 @@ export async function uploadAvatarAction(formData: FormData) {
     return {
       success: true,
       url: base64Url,
-      message: "Foto profil berhasil diunggah!",
+      message: "Foto profil berhasil diverifikasi dan disimpan!",
     };
   } catch (error) {
     console.error("Error saving avatar upload:", error);
     return {
       success: false,
-      error: "Terjadi kesalahan saat menyimpan foto profil.",
+      error: "Terjadi kesalahan saat memverifikasi dan menyimpan foto profil.",
     };
   }
 }
@@ -444,6 +439,14 @@ export async function updateProfileAction(formData: FormData) {
     return {
       success: false,
       error: "Username may only contain letters, numbers, dots, hyphens, and underscores.",
+    };
+  }
+
+  // Validate avatarUrl to prevent XSS (javascript: or dangerous data URLs)
+  if (avatarUrl && !isValidAvatarUrl(avatarUrl)) {
+    return {
+      success: false,
+      error: "Format URL Avatar tidak valid. Gunakan URL https:// atau gambar Base64 yang valid.",
     };
   }
 
@@ -778,6 +781,14 @@ export async function adminUpdateStaffProfileAction(formData: FormData) {
 
   if (!userId || !name || !username) {
     return { success: false, error: "Nama dan username wajib diisi." };
+  }
+
+  // Validate avatarUrl to prevent XSS
+  if (avatarUrl && !isValidAvatarUrl(avatarUrl)) {
+    return {
+      success: false,
+      error: "Format URL Avatar tidak valid. Gunakan URL https:// atau gambar Base64 yang valid.",
+    };
   }
 
   // Check username uniqueness

@@ -48,8 +48,7 @@ export function Navbar({ user }: NavbarProps) {
 
   const handleLogout = async () => {
     await logoutAction();
-    router.push("/login");
-    router.refresh();
+    window.location.href = "/login";
   };
 
   const navItems = [

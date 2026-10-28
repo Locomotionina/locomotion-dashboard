@@ -45,23 +45,24 @@ export default function LoginPage() {
       const searchParams = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
       const from = searchParams?.get("from");
 
+      let targetUrl = "/dashboard";
       if (from && from.startsWith("/") && !from.startsWith("//")) {
         const isRestrictedForStaff = from.startsWith("/admin") || from.startsWith("/management");
         if (result.role === "STAFF" && isRestrictedForStaff) {
-          router.push("/dashboard");
+          targetUrl = "/dashboard";
         } else if (result.role === "MANAGEMENT" && from.startsWith("/admin")) {
-          router.push("/management");
+          targetUrl = "/management";
         } else {
-          router.push(from);
+          targetUrl = from;
         }
       } else if (result.role === "ADMIN") {
-        router.push("/admin/users");
+        targetUrl = "/admin/users";
       } else if (result.role === "MANAGEMENT") {
-        router.push("/management");
-      } else {
-        router.push("/dashboard");
+        targetUrl = "/management";
       }
-      router.refresh();
+
+      // Clean, instant transition without router.refresh stutter
+      window.location.href = targetUrl;
     }
   };
 
