@@ -218,8 +218,9 @@ export function ManagementClient({
 
     setAdminUploadError(null);
 
-    if (!file.type.startsWith("image/")) {
-      setAdminUploadError("Harap pilih file gambar (JPG, PNG, WebP, GIF).");
+    const allowedTypes = ["image/jpeg", "image/jpg", "image/png", "image/webp", "image/gif"];
+    if (!allowedTypes.includes(file.type.toLowerCase())) {
+      setAdminUploadError("Harap pilih file gambar dengan format JPG, JPEG, PNG, WebP, atau GIF.");
       if (adminFileInputRef.current) adminFileInputRef.current.value = "";
       return;
     }

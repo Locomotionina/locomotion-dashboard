@@ -1,7 +1,5 @@
 "use server";
 
-import fs from "fs/promises";
-import path from "path";
 import { prisma } from "@/lib/prisma";
 import {
   setSessionCookie,
@@ -344,7 +342,8 @@ export async function logoutAction() {
 
 /**
  * Upload Avatar Image Action
- * Enforces a strict 400KB file size limit and valid image MIME types.
+ * Converts uploaded image to a Base64 Data URL string and saves directly to the database.
+ * Enforces a strict 400KB file size limit and valid image MIME types (JPG, PNG, WebP, GIF).
  */
 export async function uploadAvatarAction(formData: FormData) {
   const currentUser = await getCurrentUser();
@@ -368,16 +367,16 @@ export async function uploadAvatarAction(formData: FormData) {
   }
 
   // Validate MIME type
-  const allowedTypes: Record<string, string> = {
-    "image/jpeg": "jpg",
-    "image/jpg": "jpg",
-    "image/png": "png",
-    "image/webp": "webp",
-    "image/gif": "gif",
+  const allowedMimeTypes: Record<string, string> = {
+    "image/jpeg": "image/jpeg",
+    "image/jpg": "image/jpeg",
+    "image/png": "image/png",
+    "image/webp": "image/webp",
+    "image/gif": "image/gif",
   };
 
-  const extension = allowedTypes[file.type.toLowerCase()];
-  if (!extension) {
+  const normalizedMimeType = allowedMimeTypes[file.type.toLowerCase()];
+  if (!normalizedMimeType) {
     return {
       success: false,
       error: "Format file tidak didukung. Harap unggah foto dengan format JPG, JPEG, PNG, WebP, atau GIF.",
@@ -385,33 +384,39 @@ export async function uploadAvatarAction(formData: FormData) {
   }
 
   try {
-    const uploadDir = path.join(process.cwd(), "public", "uploads", "avatars");
-    await fs.mkdir(uploadDir, { recursive: true });
-
     // Target user id if admin is uploading for another staff
-    const targetUserId = (currentUser.role === "MANAGEMENT" && formData.get("targetUserId"))
-      ? (formData.get("targetUserId") as string)
-      : currentUser.id;
+    const targetUserId =
+      (currentUser.role === "MANAGEMENT" || currentUser.role === "ADMIN") && formData.get("targetUserId")
+        ? (formData.get("targetUserId") as string)
+        : currentUser.id;
 
-    const randomSuffix = Math.random().toString(36).substring(2, 8);
-    const filename = `avatar-${targetUserId}-${Date.now()}-${randomSuffix}.${extension}`;
-    const destinationPath = path.join(uploadDir, filename);
-
+    // Convert uploaded image file buffer into a Base64 Data URL string
     const buffer = Buffer.from(await file.arrayBuffer());
-    await fs.writeFile(destinationPath, buffer);
+    const base64Data = buffer.toString("base64");
+    const base64Url = `data:${normalizedMimeType};base64,${base64Data}`;
 
-    const publicUrl = `/uploads/avatars/${filename}`;
+    // Save this Base64 string directly into the database column for the user's profile picture / avatar URL
+    await prisma.user.update({
+      where: { id: targetUserId },
+      data: {
+        avatarUrl: base64Url,
+      },
+    });
+
+    revalidatePath("/", "layout");
+    revalidatePath("/profile");
+    revalidatePath("/management");
 
     return {
       success: true,
-      url: publicUrl,
+      url: base64Url,
       message: "Foto profil berhasil diunggah!",
     };
   } catch (error) {
     console.error("Error saving avatar upload:", error);
     return {
       success: false,
-      error: "Terjadi kesalahan saat menyimpan file gambar di server.",
+      error: "Terjadi kesalahan saat menyimpan foto profil.",
     };
   }
 }

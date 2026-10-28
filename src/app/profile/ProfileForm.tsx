@@ -77,8 +77,9 @@ export function ProfileForm({
     setUploadError(null);
     setUploadSuccess(null);
 
-    // Validate MIME type
-    if (!file.type.startsWith("image/")) {
+    // Validate MIME type (JPG, PNG, WebP, GIF)
+    const allowedTypes = ["image/jpeg", "image/jpg", "image/png", "image/webp", "image/gif"];
+    if (!allowedTypes.includes(file.type.toLowerCase())) {
       setUploadError("Format file tidak valid. Harap pilih file gambar (JPG, PNG, WebP, GIF).");
       if (fileInputRef.current) fileInputRef.current.value = "";
       return;
