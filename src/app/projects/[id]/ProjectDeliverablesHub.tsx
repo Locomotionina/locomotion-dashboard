@@ -60,6 +60,7 @@ interface DeliverablesHubProps {
   creativeDeckUrl: string | null;
   finalAssetsUrl: string | null;
   customDeliverables: DeliverableItem[];
+  canManageDeliverables?: boolean;
 }
 
 const CATEGORY_ICONS: Record<DeliverableCategoryKey, any> = {
@@ -76,6 +77,7 @@ export function ProjectDeliverablesHub({
   creativeDeckUrl,
   finalAssetsUrl,
   customDeliverables,
+  canManageDeliverables = false,
 }: DeliverablesHubProps) {
   const router = useRouter();
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
@@ -205,77 +207,83 @@ export function ProjectDeliverablesHub({
 
         <div className="flex items-center gap-2">
           {/* Add Custom Deliverable Dialog */}
-          <Dialog open={addCustomOpen} onOpenChange={setAddCustomOpen}>
-            <DialogTrigger asChild>
-              <Button size="sm" className="gap-1.5 text-xs">
-                <Plus className="h-3.5 w-3.5" />
-                <span>Add Custom URL</span>
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="max-w-md">
-              <form onSubmit={handleAddCustomDeliverable}>
-                <DialogHeader>
-                  <DialogTitle>Add Custom Deliverable Link</DialogTitle>
-                  <DialogDescription className="text-xs">
-                    Link additional assets, test builds, API documentation, or media kits.
-                  </DialogDescription>
-                </DialogHeader>
+          {canManageDeliverables ? (
+            <Dialog open={addCustomOpen} onOpenChange={setAddCustomOpen}>
+              <DialogTrigger asChild>
+                <Button size="sm" className="gap-1.5 text-xs">
+                  <Plus className="h-3.5 w-3.5" />
+                  <span>Add Custom URL</span>
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="max-w-md">
+                <form onSubmit={handleAddCustomDeliverable}>
+                  <DialogHeader>
+                    <DialogTitle>Add Custom Deliverable Link</DialogTitle>
+                    <DialogDescription className="text-xs">
+                      Link additional assets, test builds, API documentation, or media kits.
+                    </DialogDescription>
+                  </DialogHeader>
 
-                <div className="space-y-3 py-4">
-                  <div className="space-y-1.5">
-                    <Label htmlFor="title">Deliverable Title</Label>
-                    <Input
-                      id="title"
-                      name="title"
-                      placeholder="e.g. iOS TestFlight Build, Brand Guidelines PDF"
-                      required
-                    />
+                  <div className="space-y-3 py-4">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="title">Deliverable Title</Label>
+                      <Input
+                        id="title"
+                        name="title"
+                        placeholder="e.g. iOS TestFlight Build, Brand Guidelines PDF"
+                        required
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label htmlFor="url">URL</Label>
+                      <Input
+                        id="url"
+                        name="url"
+                        placeholder="https://..."
+                        required
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label htmlFor="type">Deliverable Category</Label>
+                      <select
+                        id="type"
+                        name="type"
+                        defaultValue="OTHER"
+                        className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring text-foreground"
+                      >
+                        <option value="PREVIEW" className="bg-popover text-foreground">Interactive Preview</option>
+                        <option value="CREATIVE_DECK" className="bg-popover text-foreground">Creative / Figma</option>
+                        <option value="PITCH_DECK" className="bg-popover text-foreground">Pitch / Strategy Deck</option>
+                        <option value="FINAL_ASSET" className="bg-popover text-foreground">Final Assets & Masters</option>
+                        <option value="OTHER" className="bg-popover text-foreground">Other Deliverable</option>
+                      </select>
+                    </div>
                   </div>
 
-                  <div className="space-y-1.5">
-                    <Label htmlFor="url">URL</Label>
-                    <Input
-                      id="url"
-                      name="url"
-                      placeholder="https://..."
-                      required
-                    />
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <Label htmlFor="type">Deliverable Category</Label>
-                    <select
-                      id="type"
-                      name="type"
-                      defaultValue="OTHER"
-                      className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring text-foreground"
+                  <DialogFooter>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => setAddCustomOpen(false)}
+                      disabled={loadingCustom}
                     >
-                      <option value="PREVIEW" className="bg-popover text-foreground">Interactive Preview</option>
-                      <option value="CREATIVE_DECK" className="bg-popover text-foreground">Creative / Figma</option>
-                      <option value="PITCH_DECK" className="bg-popover text-foreground">Pitch / Strategy Deck</option>
-                      <option value="FINAL_ASSET" className="bg-popover text-foreground">Final Assets & Masters</option>
-                      <option value="OTHER" className="bg-popover text-foreground">Other Deliverable</option>
-                    </select>
-                  </div>
-                </div>
-
-                <DialogFooter>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => setAddCustomOpen(false)}
-                    disabled={loadingCustom}
-                  >
-                    Cancel
-                  </Button>
-                  <Button type="submit" disabled={loadingCustom} className="gap-2">
-                    {loadingCustom && <Loader2 className="h-4 w-4 animate-spin" />}
-                    <span>Add Deliverable</span>
-                  </Button>
-                </DialogFooter>
-              </form>
-            </DialogContent>
-          </Dialog>
+                      Cancel
+                    </Button>
+                    <Button type="submit" disabled={loadingCustom} className="gap-2">
+                      {loadingCustom && <Loader2 className="h-4 w-4 animate-spin" />}
+                      <span>Add Deliverable</span>
+                    </Button>
+                  </DialogFooter>
+                </form>
+              </DialogContent>
+            </Dialog>
+          ) : (
+            <Badge variant="outline" className="text-[10px] text-muted-foreground border-border/50">
+              Deliverable Mode: View Only
+            </Badge>
+          )}
         </div>
       </div>
 
@@ -373,26 +381,34 @@ export function ProjectDeliverablesHub({
                       ))}
                     </div>
 
+                    {canManageDeliverables && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="w-full text-xs h-7 border-border/70 hover:border-indigo-500/50 hover:bg-indigo-500/5 transition-colors gap-1.5"
+                        onClick={() => handleOpenCategoryModal(catKey)}
+                      >
+                        <Edit3 className="h-3 w-3 text-indigo-400" />
+                        <span>Attach / Edit Links</span>
+                      </Button>
+                    )}
+                  </div>
+                ) : (
+                  canManageDeliverables ? (
                     <Button
                       variant="outline"
                       size="sm"
-                      className="w-full text-xs h-7 border-border/70 hover:border-indigo-500/50 hover:bg-indigo-500/5 transition-colors gap-1.5"
+                      className="w-full text-xs h-8 border-dashed border-border/80 hover:border-indigo-500/50 hover:bg-indigo-500/5 transition-colors gap-1.5"
                       onClick={() => handleOpenCategoryModal(catKey)}
                     >
-                      <Edit3 className="h-3 w-3 text-indigo-400" />
-                      <span>Attach / Edit Links</span>
+                      <Plus className="h-3.5 w-3.5 text-indigo-400" />
+                      <span>+ Attach Link</span>
                     </Button>
-                  </div>
-                ) : (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="w-full text-xs h-8 border-dashed border-border/80 hover:border-indigo-500/50 hover:bg-indigo-500/5 transition-colors gap-1.5"
-                    onClick={() => handleOpenCategoryModal(catKey)}
-                  >
-                    <Plus className="h-3.5 w-3.5 text-indigo-400" />
-                    <span>+ Attach Link</span>
-                  </Button>
+                  ) : (
+                    <div className="text-center py-2 text-xs text-muted-foreground/50 italic">
+                      Belum ada tautan
+                    </div>
+                  )
                 )}
               </CardContent>
             </Card>
@@ -565,15 +581,17 @@ export function ProjectDeliverablesHub({
                         <ExternalLink className="h-3 w-3" />
                       </a>
                     </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="h-7 w-7 p-0 text-rose-400 hover:text-rose-300 hover:bg-rose-500/10"
-                      onClick={() => handleDeleteDeliverable(deliv.id)}
-                      title="Remove Deliverable"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </Button>
+                    {canManageDeliverables && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 w-7 p-0 text-rose-400 hover:text-rose-300 hover:bg-rose-500/10"
+                        onClick={() => handleDeleteDeliverable(deliv.id)}
+                        title="Remove Deliverable"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
                   </div>
                 </div>
               ))}

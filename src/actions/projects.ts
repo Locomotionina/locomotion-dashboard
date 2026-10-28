@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
 import { revalidatePath } from "next/cache";
 import { isValidDeliverableUrl } from "@/lib/security";
+import { canManageDeliverables } from "@/lib/deliverables";
 
 export async function getProjects(filterStatus?: string) {
   const whereClause: any = {};
@@ -252,8 +253,12 @@ export async function createProjectAction(formData: FormData) {
 
 export async function updateProjectUrlsAction(formData: FormData) {
   const user = await getCurrentUser();
-  if (!user || (user.role !== "MANAGEMENT" && user.role !== "ADMIN")) {
-    return { success: false, error: "Akses ditolak: Hanya Management atau Admin yang berhak mengubah URL project." };
+  if (!user || !canManageDeliverables(user.position)) {
+    return {
+      success: false,
+      error:
+        "Akses ditolak: Hanya Project Manager, Associate Project Manager, Business Development Head, Sales Executive, dan Account Executive yang berwenang mengubah URL project.",
+    };
   }
 
   const projectId = formData.get("projectId") as string;
@@ -300,8 +305,12 @@ export async function updateProjectUrlsAction(formData: FormData) {
 
 export async function updateCategoryUrlsAction(formData: FormData) {
   const user = await getCurrentUser();
-  if (!user || (user.role !== "MANAGEMENT" && user.role !== "ADMIN")) {
-    return { success: false, error: "Akses ditolak: Hanya Management atau Admin yang berhak mengubah deliverables project." };
+  if (!user || !canManageDeliverables(user.position)) {
+    return {
+      success: false,
+      error:
+        "Akses ditolak: Hanya Project Manager, Associate Project Manager, Business Development Head, Sales Executive, dan Account Executive yang berwenang mengubah deliverables project.",
+    };
   }
 
   const projectId = formData.get("projectId") as string;
@@ -485,7 +494,13 @@ export async function updateProjectMetadataAction(formData: FormData) {
 
 export async function addDeliverableAction(formData: FormData) {
   const user = await getCurrentUser();
-  if (!user) return { success: false, error: "Unauthorized" };
+  if (!user || !canManageDeliverables(user.position)) {
+    return {
+      success: false,
+      error:
+        "Akses ditolak: Hanya Project Manager, Associate Project Manager, Business Development Head, Sales Executive, dan Account Executive yang berwenang menambahkan deliverable.",
+    };
+  }
 
   const projectId = formData.get("projectId") as string;
   const title = (formData.get("title") as string)?.trim();
@@ -520,8 +535,12 @@ export async function addDeliverableAction(formData: FormData) {
 
 export async function deleteDeliverableAction(deliverableId: string, projectId: string) {
   const user = await getCurrentUser();
-  if (!user || (user.role !== "MANAGEMENT" && user.role !== "ADMIN")) {
-    return { success: false, error: "Akses ditolak: Hanya Management atau Admin yang berhak menghapus deliverable." };
+  if (!user || !canManageDeliverables(user.position)) {
+    return {
+      success: false,
+      error:
+        "Akses ditolak: Hanya Project Manager, Associate Project Manager, Business Development Head, Sales Executive, dan Account Executive yang berwenang menghapus deliverable.",
+    };
   }
 
   await prisma.projectDeliverable.delete({

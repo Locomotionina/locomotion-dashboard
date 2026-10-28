@@ -131,3 +131,41 @@ export function formatExternalUrl(url: string): string {
   }
   return `https://${trimmed}`;
 }
+
+/**
+ * Kewenangan pengelolaan tautan dokumen kerja & deliverable project:
+ * Hanya untuk:
+ * - Project Manager
+ * - Associate Project Manager
+ * - Business Development Head
+ * - Sales Executive
+ * - Account Executive
+ * Selain posisi tersebut, akses ditolak.
+ */
+export const DELIVERABLE_AUTHORIZED_POSITIONS = [
+  "project manager",
+  "associate project manager",
+  "assosiate project manager",
+  "business development head",
+  "sales executive",
+  "account executive",
+  "accounte executive",
+];
+
+export function canManageDeliverables(position?: string | null): boolean {
+  if (!position) return false;
+  const p = position.trim().toLowerCase();
+  return (
+    p === "project manager" ||
+    p === "associate project manager" ||
+    p === "assosiate project manager" ||
+    p === "business development head" ||
+    p === "sales executive" ||
+    p === "account executive" ||
+    p === "accounte executive" ||
+    p.includes("project manager") ||
+    p.includes("business development head") ||
+    p.includes("sales executive") ||
+    p.includes("account executive")
+  );
+}

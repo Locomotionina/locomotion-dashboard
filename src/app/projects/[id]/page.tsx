@@ -21,6 +21,7 @@ import {
   Clock,
 } from "lucide-react";
 import { formatDate, formatRelativeDays } from "@/lib/utils";
+import { canManageDeliverables } from "@/lib/deliverables";
 
 export default async function ProjectDetailPage({
   params,
@@ -142,6 +143,7 @@ export default async function ProjectDetailPage({
             creativeDeckUrl={project.creativeDeckUrl}
             finalAssetsUrl={project.finalAssetsUrl}
             customDeliverables={project.deliverables as any}
+            canManageDeliverables={canManageDeliverables(currentUser?.position)}
           />
         </div>
 
