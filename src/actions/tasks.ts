@@ -946,12 +946,13 @@ export async function getStaffDashboardData(targetUserId?: string) {
       ],
     }),
 
-    // 2. Archived tasks ("Done") assigned to this user
+    // 2. Archived tasks ("Done") assigned to this user (capped at 30 most recent for high performance)
     prisma.task.findMany({
       where: {
         userId,
         status: "Done",
       },
+      take: 30,
       include: {
         project: {
           select: {

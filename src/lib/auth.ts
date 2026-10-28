@@ -1,4 +1,5 @@
 import { cookies } from "next/headers";
+import { cache } from "react";
 import { prisma } from "@/lib/prisma";
 import bcrypt from "bcryptjs";
 import {
@@ -26,8 +27,10 @@ export interface SessionUser {
 
 /**
  * Retrieves the currently logged-in user from the signed session cookie.
+ * Wrapped in React cache to eliminate redundant database round-trips
+ * during a single request lifecycle (e.g. layout + page + actions).
  */
-export async function getCurrentUser(): Promise<SessionUser | null> {
+export const getCurrentUser = cache(async (): Promise<SessionUser | null> => {
   const cookieStore = cookies();
   const sessionCookie = cookieStore.get(SESSION_COOKIE_NAME);
 
@@ -73,7 +76,7 @@ export async function getCurrentUser(): Promise<SessionUser | null> {
     console.error("Failed to parse session cookie:", err);
     return null;
   }
-}
+});
 
 /**
  * Creates a cryptographically signed session cookie for the given user.

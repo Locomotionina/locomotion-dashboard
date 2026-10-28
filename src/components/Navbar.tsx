@@ -90,7 +90,7 @@ export function Navbar({ user }: NavbarProps) {
       <div className="max-w-7xl mx-auto flex h-16 items-center justify-between px-4 sm:px-6">
         {/* Brand Logo */}
         <div className="flex items-center gap-6">
-          <Link href={user ? "/dashboard" : "/login"} className="flex items-center gap-2.5 group">
+          <Link href={user ? "/dashboard" : "/login"} prefetch={true} className="flex items-center gap-2.5 group">
             <div className="relative flex h-9 w-9 items-center justify-center rounded-xl overflow-hidden shadow-sm group-hover:scale-105 transition-transform duration-200 border border-blue-500/30 bg-blue-600 dark:bg-blue-500 flex-shrink-0">
               <Image
                 src="/logo.svg"
@@ -119,6 +119,7 @@ export function Navbar({ user }: NavbarProps) {
                 <Link
                   key={item.href}
                   href={item.href}
+                  prefetch={true}
                   className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-sm font-medium transition-all duration-200 ${
                     isActive
                       ? "bg-blue-500/10 text-blue-600 dark:bg-blue-500/15 dark:text-blue-400 border border-blue-500/20 shadow-sm"
@@ -185,13 +186,13 @@ export function Navbar({ user }: NavbarProps) {
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
               <DropdownMenuItem asChild>
-                <Link href="/profile" className="flex items-center gap-2 cursor-pointer">
+                <Link href="/profile" prefetch={true} className="flex items-center gap-2 cursor-pointer">
                   <User className="h-4 w-4" />
                   <span>My Profile</span>
                 </Link>
               </DropdownMenuItem>
               <DropdownMenuItem asChild>
-                <Link href="/dashboard" className="flex items-center gap-2 cursor-pointer">
+                <Link href="/dashboard" prefetch={true} className="flex items-center gap-2 cursor-pointer">
                   <CheckSquare className="h-4 w-4" />
                   <span>Staff Workspace</span>
                 </Link>
@@ -200,6 +201,7 @@ export function Navbar({ user }: NavbarProps) {
                 <DropdownMenuItem asChild>
                   <Link
                     href="/admin/users"
+                    prefetch={true}
                     className="flex items-center gap-2 cursor-pointer text-rose-500 font-semibold"
                   >
                     <ShieldAlert className="h-4 w-4" />
@@ -211,6 +213,7 @@ export function Navbar({ user }: NavbarProps) {
                 <DropdownMenuItem asChild>
                   <Link
                     href="/management"
+                    prefetch={true}
                     className="flex items-center gap-2 cursor-pointer text-blue-600 dark:text-blue-400"
                   >
                     <ShieldCheck className="h-4 w-4" />
@@ -240,6 +243,7 @@ export function Navbar({ user }: NavbarProps) {
             <Link
               key={item.href}
               href={item.href}
+              prefetch={true}
               className={`flex items-center gap-1.5 whitespace-nowrap px-3 py-1.5 rounded-xl ${
                 isActive
                   ? "bg-blue-500/10 text-blue-600 dark:bg-blue-500/15 dark:text-blue-400 font-medium"

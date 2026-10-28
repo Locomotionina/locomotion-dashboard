@@ -77,29 +77,94 @@ export async function getManagementOverviewData() {
     };
   }
 
-  // Fetch all team members (excluding current logged-in Project Manager) and their tasks
-  const staffMembers = await prisma.user.findMany({
-    where: {
-      isApproved: true,
-      id: { not: currentUser.id },
-    },
-    include: {
-      tasks: {
-        include: {
-          project: {
-            select: {
-              id: true,
-              name: true,
-              clientName: true,
-              code: true,
+  // Parallel query execution with Promise.all for maximum speed and instant responsiveness
+  const [
+    staffMembers,
+    activeProjectsCount,
+    pendingUsers,
+    pendingProfileRequests,
+    pendingPasswordRequests,
+  ] = await Promise.all([
+    // 1. Fetch all team members (excluding current logged-in Project Manager) and their tasks
+    prisma.user.findMany({
+      where: {
+        isApproved: true,
+        id: { not: currentUser.id },
+      },
+      include: {
+        tasks: {
+          include: {
+            project: {
+              select: {
+                id: true,
+                name: true,
+                clientName: true,
+                code: true,
+              },
             },
           },
+          orderBy: [{ priority: "desc" }, { dueDate: "asc" }],
         },
-        orderBy: [{ priority: "desc" }, { dueDate: "asc" }],
       },
-    },
-    orderBy: { name: "asc" },
-  });
+      orderBy: { name: "asc" },
+    }),
+
+    // 2. Active projects count
+    prisma.project.count({
+      where: { status: { in: ["ACTIVE", "PITCH", "IN_REVIEW"] } },
+    }),
+
+    // 3. Pending user registrations requiring approval
+    prisma.user.findMany({
+      where: { isApproved: false },
+      select: {
+        id: true,
+        name: true,
+        username: true,
+        email: true,
+        department: true,
+        position: true,
+        createdAt: true,
+      },
+      orderBy: { createdAt: "desc" },
+    }),
+
+    // 4. Pending profile update requests
+    prisma.profileUpdateRequest.findMany({
+      where: { status: "PENDING" },
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            username: true,
+            avatarUrl: true,
+            department: true,
+            position: true,
+          },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+    }),
+
+    // 5. Pending password reset requests
+    prisma.passwordResetRequest.findMany({
+      where: { status: "PENDING" },
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            username: true,
+            avatarUrl: true,
+            department: true,
+            position: true,
+          },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+    }),
+  ]);
 
   const capacitySummaries: StaffCapacitySummary[] = staffMembers.map((staff) => {
     const activeTasks = staff.tasks.filter((t) => t.status !== "Done");
@@ -172,62 +237,6 @@ export async function getManagementOverviewData() {
     0
   );
   const avgTasksPerStaff = totalStaff > 0 ? (totalActiveTasks / totalStaff).toFixed(1) : "0";
-
-  // Active projects count
-  const activeProjectsCount = await prisma.project.count({
-    where: { status: { in: ["ACTIVE", "PITCH", "IN_REVIEW"] } },
-  });
-
-  // Pending user registrations requiring Project Manager / admin approval
-  const pendingUsers = await prisma.user.findMany({
-    where: { isApproved: false },
-    select: {
-      id: true,
-      name: true,
-      username: true,
-      email: true,
-      department: true,
-      position: true,
-      createdAt: true,
-    },
-    orderBy: { createdAt: "desc" },
-  });
-
-  // Pending profile update requests requiring Project Manager / admin approval
-  const pendingProfileRequests = await prisma.profileUpdateRequest.findMany({
-    where: { status: "PENDING" },
-    include: {
-      user: {
-        select: {
-          id: true,
-          name: true,
-          username: true,
-          avatarUrl: true,
-          department: true,
-          position: true,
-        },
-      },
-    },
-    orderBy: { createdAt: "desc" },
-  });
-
-  // Pending password reset requests requiring Project Manager / admin approval
-  const pendingPasswordRequests = await prisma.passwordResetRequest.findMany({
-    where: { status: "PENDING" },
-    include: {
-      user: {
-        select: {
-          id: true,
-          name: true,
-          username: true,
-          avatarUrl: true,
-          department: true,
-          position: true,
-        },
-      },
-    },
-    orderBy: { createdAt: "desc" },
-  });
 
   return {
     authorized: true,

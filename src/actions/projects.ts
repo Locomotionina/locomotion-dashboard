@@ -41,22 +41,34 @@ export async function getProjects(filterStatus?: string) {
   });
 
   return projects.map((p) => {
-    // Determine distinct staff members assigned (PICs)
-    const picMap = new Map();
-    p.tasks.forEach((t) => {
-      if (t.user && !picMap.has(t.user.id)) {
-        picMap.set(t.user.id, {
-          ...t.user,
-          taskCount: p.tasks.filter((task) => task.userId === t.user.id).length,
-          activeTaskCount: p.tasks.filter(
-            (task) => task.userId === t.user.id && task.status !== "Done"
-          ).length,
-        });
-      }
-    });
+    // Single-pass O(N) calculation for PICs and status tallies
+    const picMap = new Map<string, any>();
+    let activeTasksCount = 0;
+    let doneTasksCount = 0;
 
-    const activeTasksCount = p.tasks.filter((t) => t.status !== "Done").length;
-    const doneTasksCount = p.tasks.filter((t) => t.status === "Done").length;
+    for (const t of p.tasks) {
+      if (t.status === "Done") {
+        doneTasksCount++;
+      } else {
+        activeTasksCount++;
+      }
+
+      if (t.user) {
+        let entry = picMap.get(t.user.id);
+        if (!entry) {
+          entry = {
+            ...t.user,
+            taskCount: 0,
+            activeTaskCount: 0,
+          };
+          picMap.set(t.user.id, entry);
+        }
+        entry.taskCount++;
+        if (t.status !== "Done") {
+          entry.activeTaskCount++;
+        }
+      }
+    }
 
     return {
       ...p,

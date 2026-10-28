@@ -145,14 +145,17 @@ export function NotificationBell() {
   }
 
   useEffect(() => {
-    fetchNotifications();
+    // Slight delay so the initial page navigation & hydration render with zero lag
+    const initialTimer = setTimeout(() => {
+      fetchNotifications();
+    }, 150);
 
-    // Poll every 25 seconds when tab is active (hemat resource database & network)
+    // Poll every 30 seconds when tab is active (saves database connections)
     const interval = setInterval(() => {
       if (typeof document !== "undefined" && document.visibilityState === "visible") {
         fetchNotifications();
       }
-    }, 25000);
+    }, 30000);
 
     // Langsung fetch jika user kembali ke tab ini dari tab lain
     const handleVisibilityChange = () => {
@@ -163,6 +166,7 @@ export function NotificationBell() {
     document.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
+      clearTimeout(initialTimer);
       clearInterval(interval);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
