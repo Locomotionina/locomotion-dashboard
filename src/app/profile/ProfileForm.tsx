@@ -201,9 +201,13 @@ export function ProfileForm({
                 <ShieldCheck className="h-3 w-3" />
                 <span>Persetujuan Admin Diperlukan</span>
               </Badge>
+            ) : user.role === "ADMIN" ? (
+              <Badge variant="destructive" className="text-[11px]">
+                Akses Admin (HRGA)
+              </Badge>
             ) : (
               <Badge variant="purple" className="text-[11px]">
-                Akses Project Manager / Admin
+                Akses Project Manager
               </Badge>
             )}
           </div>
@@ -243,7 +247,7 @@ export function ProfileForm({
               </div>
             </div>
             <p className="text-[11px] text-muted-foreground italic">
-              * Perubahan akan aktif setelah disetujui oleh Project Manager. Anda dapat mengirimkan perubahan baru untuk menggantikan permintaan di atas.
+              * Perubahan akan aktif setelah disetujui oleh Admin. Anda dapat mengirimkan perubahan baru untuk menggantikan permintaan di atas.
             </p>
           </div>
         )}
@@ -487,16 +491,22 @@ export function ProfileForm({
                 <Clock className="h-3 w-3" />
                 <span>Approval Admin Diperlukan</span>
               </Badge>
+            ) : user.role === "ADMIN" ? (
+              <Badge variant="destructive" className="text-[11px]">
+                Langsung Aktif (Admin)
+              </Badge>
             ) : (
-              <Badge variant="cyan" className="text-[11px]">
-                Langsung Aktif
+              <Badge variant="purple" className="text-[11px]">
+                Langsung Aktif (PM)
               </Badge>
             )}
           </div>
           <p className="text-xs text-muted-foreground mt-0.5">
             {isStaff
-              ? "Sesuai prosedur keamanan agensi, permohonan reset password staf harus disetujui (di-ACC) oleh Project Manager sebelum dapat digunakan."
-              : "Sebagai Project Manager / Admin, kata sandi baru Anda akan langsung diperbarui seketika."}
+              ? "Sesuai prosedur keamanan agensi, permohonan reset password staf harus disetujui (ACC) terlebih dahulu oleh Admin sebelum dapat digunakan."
+              : user.role === "ADMIN"
+              ? "Sebagai Admin, kata sandi baru Anda akan langsung diperbarui seketika."
+              : "Sebagai Project Manager, kata sandi baru Anda akan langsung diperbarui seketika."}
           </p>
         </div>
 
@@ -515,7 +525,7 @@ export function ProfileForm({
                   timeStyle: "short",
                 })}
               </strong>
-              . Kata sandi baru akan mulai berlaku setelah Project Manager menyetujui permintaan ini.
+              . Kata sandi baru akan mulai berlaku setelah disetujui oleh Admin.
             </p>
           </div>
         )}

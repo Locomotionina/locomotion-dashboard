@@ -77,7 +77,7 @@ export default async function ProfilePage() {
                 {user.role === "ADMIN"
                   ? "Admin (Top Level)"
                   : user.role === "MANAGEMENT"
-                  ? "Management (Project Manager)"
+                  ? "Project Manager"
                   : "Staff Agensi"}
               </span>
             </div>

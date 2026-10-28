@@ -623,7 +623,7 @@ export async function approveProfileUpdateAction(requestId: string) {
 export async function rejectProfileUpdateAction(requestId: string, adminNote?: string) {
   const currentUser = await getCurrentUser();
   if (!currentUser || (currentUser.role !== "MANAGEMENT" && currentUser.role !== "ADMIN")) {
-    return { success: false, error: "Akses ditolak: Hanya Project Manager / Admin yang dapat menolak perubahan profil." };
+    return { success: false, error: "Akses ditolak: Hanya Admin / Management yang dapat menolak perubahan profil." };
   }
 
   const req = await prisma.profileUpdateRequest.findUnique({
@@ -638,7 +638,7 @@ export async function rejectProfileUpdateAction(requestId: string, adminNote?: s
     where: { id: requestId },
     data: {
       status: "REJECTED",
-      adminNote: adminNote || "Ditolak oleh Project Manager",
+      adminNote: adminNote || "Ditolak oleh Admin",
     },
   });
 
@@ -647,8 +647,8 @@ export async function rejectProfileUpdateAction(requestId: string, adminNote?: s
       userId: req.userId,
       title: "Perubahan Profil Ditolak",
       message: adminNote
-        ? `Permintaan perubahan profil Anda ditolak oleh Project Manager: ${adminNote}`
-        : "Permintaan perubahan profil Anda ditolak oleh Project Manager.",
+        ? `Permintaan perubahan profil Anda ditolak oleh Admin: ${adminNote}`
+        : "Permintaan perubahan profil Anda ditolak oleh Admin.",
       link: "/profile",
     },
   });
@@ -684,7 +684,7 @@ export async function requestPasswordResetAction(newPassword: string) {
     return { success: true, message: "Password Anda berhasil diperbarui." };
   }
 
-  // If currentUser is STAFF, password reset requires Admin / Project Manager approval!
+  // If currentUser is STAFF, password reset requires Admin / Management approval!
   await prisma.passwordResetRequest.deleteMany({
     where: {
       userId: currentUser.id,
@@ -700,18 +700,25 @@ export async function requestPasswordResetAction(newPassword: string) {
     },
   });
 
-  // Notify Project Managers
-  const managers = await prisma.user.findMany({
-    where: { role: "MANAGEMENT" },
+  // Notify Admins and Managers
+  const adminsAndManagers = await prisma.user.findMany({
+    where: {
+      role: { in: ["ADMIN", "MANAGEMENT"] },
+      isApproved: true,
+      isSuspended: false,
+    },
+    select: { id: true },
   });
-  for (const m of managers) {
-    await prisma.notification.create({
-      data: {
-        userId: m.id,
+
+  if (adminsAndManagers.length > 0) {
+    await prisma.notification.createMany({
+      data: adminsAndManagers.map((admin) => ({
+        userId: admin.id,
         title: "Permintaan Reset Password Staf",
         message: `Staf ${currentUser.name} (@${currentUser.username}) mengajukan reset password akun.`,
+        type: "INFO",
         link: "/management",
-      },
+      })),
     });
   }
 
@@ -720,14 +727,14 @@ export async function requestPasswordResetAction(newPassword: string) {
   return {
     success: true,
     pendingApproval: true,
-    message: "Permintaan reset password telah diajukan! Menunggu persetujuan (ACC) dari Project Manager.",
+    message: "Permintaan reset password telah diajukan! Menunggu persetujuan (ACC) dari Admin.",
   };
 }
 
 export async function approvePasswordResetAction(requestId: string) {
   const currentUser = await getCurrentUser();
   if (!currentUser || (currentUser.role !== "MANAGEMENT" && currentUser.role !== "ADMIN")) {
-    return { success: false, error: "Akses ditolak: Hanya Project Manager / Admin yang dapat menyetujui reset password." };
+    return { success: false, error: "Akses ditolak: Hanya Admin / Management yang dapat menyetujui reset password." };
   }
 
   const req = await prisma.passwordResetRequest.findUnique({
@@ -752,7 +759,7 @@ export async function approvePasswordResetAction(requestId: string) {
     data: {
       userId: req.userId,
       title: "Reset Password Disetujui",
-      message: "Permintaan reset password Anda telah disetujui. Anda sekarang dapat login menggunakan kata sandi baru Anda.",
+      message: "Permintaan reset password Anda telah disetujui oleh Admin. Anda sekarang dapat login menggunakan kata sandi baru Anda.",
       link: "/profile",
     },
   });
@@ -764,7 +771,7 @@ export async function approvePasswordResetAction(requestId: string) {
 export async function rejectPasswordResetAction(requestId: string, adminNote?: string) {
   const currentUser = await getCurrentUser();
   if (!currentUser || (currentUser.role !== "MANAGEMENT" && currentUser.role !== "ADMIN")) {
-    return { success: false, error: "Akses ditolak: Hanya Project Manager / Admin yang dapat menolak reset password." };
+    return { success: false, error: "Akses ditolak: Hanya Admin / Management yang dapat menolak reset password." };
   }
 
   const req = await prisma.passwordResetRequest.findUnique({
@@ -779,7 +786,7 @@ export async function rejectPasswordResetAction(requestId: string, adminNote?: s
     where: { id: requestId },
     data: {
       status: "REJECTED",
-      adminNote: adminNote || "Ditolak oleh Project Manager",
+      adminNote: adminNote || "Ditolak oleh Admin",
     },
   });
 
@@ -788,8 +795,8 @@ export async function rejectPasswordResetAction(requestId: string, adminNote?: s
       userId: req.userId,
       title: "Reset Password Ditolak",
       message: adminNote
-        ? `Permintaan reset password Anda ditolak oleh Project Manager: ${adminNote}`
-        : "Permintaan reset password Anda ditolak oleh Project Manager.",
+        ? `Permintaan reset password Anda ditolak oleh Admin: ${adminNote}`
+        : "Permintaan reset password Anda ditolak oleh Admin.",
       link: "/profile",
     },
   });
