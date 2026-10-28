@@ -8,7 +8,7 @@ export interface SessionPayload {
   exp?: number;
 }
 
-const DEFAULT_SECRET = "locomotion-secure-agency-session-secret-salt-2026";
+const DEFAULT_SECRET = "7d20728367c64ab26f0605216e0f1527116d54689f8fbac92c98f8e23ea92d30";
 
 function getSecret(): string {
   return process.env.SESSION_SECRET || process.env.AUTH_SECRET || DEFAULT_SECRET;

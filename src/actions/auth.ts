@@ -24,6 +24,43 @@ export interface SessionUserData {
   department: string;
 }
 
+// In-memory rate limiting map for login attempts (Brute-Force & Credential Stuffing Protection)
+const loginAttemptsMap = new Map<string, { attempts: number; lockUntil: number }>();
+
+function checkRateLimit(identifier: string): { allowed: boolean; waitSeconds?: number } {
+  const record = loginAttemptsMap.get(identifier);
+  if (!record) return { allowed: true };
+
+  const now = Date.now();
+  if (record.lockUntil > now) {
+    const waitSeconds = Math.ceil((record.lockUntil - now) / 1000);
+    return { allowed: false, waitSeconds };
+  }
+
+  if (record.lockUntil > 0 && record.lockUntil <= now) {
+    loginAttemptsMap.delete(identifier);
+  }
+
+  return { allowed: true };
+}
+
+function recordFailedLogin(identifier: string) {
+  const now = Date.now();
+  const record = loginAttemptsMap.get(identifier) || { attempts: 0, lockUntil: 0 };
+  record.attempts += 1;
+
+  // Lock out after 5 consecutive failed attempts for 5 minutes
+  if (record.attempts >= 5) {
+    record.lockUntil = now + 5 * 60 * 1000;
+  }
+
+  loginAttemptsMap.set(identifier, record);
+}
+
+function resetFailedLogin(identifier: string) {
+  loginAttemptsMap.delete(identifier);
+}
+
 export async function loginAction(formData: FormData) {
   const username = formData.get("username") as string;
   const password = formData.get("password") as string;
@@ -33,6 +70,15 @@ export async function loginAction(formData: FormData) {
   }
 
   const cleanUsername = username.trim().toLowerCase();
+
+  // Enforce Rate Limiting (Anti Brute-Force)
+  const rateLimit = checkRateLimit(cleanUsername);
+  if (!rateLimit.allowed) {
+    return {
+      success: false,
+      error: `Terlalu banyak percobaan login gagal. Demi keamanan, akun ini dikunci sementara selama ${rateLimit.waitSeconds} detik. Silakan coba lagi nanti.`,
+    };
+  }
 
   let user = await prisma.user.findUnique({
     where: { username: cleanUsername },
@@ -44,14 +90,21 @@ export async function loginAction(formData: FormData) {
     });
   }
 
+  // Mitigate timing attacks: run dummy compare if user does not exist
   if (!user) {
+    await verifyPassword(password, "$2a$10$e8XyZdummyhashforconstanttimingdefense123456789012");
+    recordFailedLogin(cleanUsername);
     return { success: false, error: "Invalid username or password." };
   }
 
   const isValid = await verifyPassword(password, user.password);
   if (!isValid) {
+    recordFailedLogin(cleanUsername);
     return { success: false, error: "Invalid username or password." };
   }
+
+  // Reset rate limiting counter on successful login
+  resetFailedLogin(cleanUsername);
 
   // Check suspension status (Hold)
   if (user.isSuspended) {
@@ -119,8 +172,8 @@ export async function registerAction(formData: FormData) {
     return { success: false, error: "Please enter a valid email address." };
   }
 
-  if (!password || password.length < 6) {
-    return { success: false, error: "Password must be at least 6 characters long." };
+  if (!password || password.length < 8) {
+    return { success: false, error: "Password minimal harus 8 karakter demi keamanan akun Anda." };
   }
 
   const existing = await prisma.user.findUnique({
