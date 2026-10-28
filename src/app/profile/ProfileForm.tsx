@@ -109,7 +109,11 @@ export function ProfileForm({
         setPreviewUrl(null);
       } else {
         setAvatarUrl(res.url!);
-        setUploadSuccess("Foto profil berhasil diunggah! Jangan lupa klik simpan perubahan.");
+        setUploadSuccess(
+          isStaff
+            ? "Foto profil berhasil diverifikasi! Klik 'Ajukan Perubahan' di bawah agar Admin dapat meninjau dan menyetujuinya."
+            : "Foto profil berhasil diverifikasi dan disimpan!"
+        );
       }
     } catch {
       setUploadError("Terjadi kesalahan koneksi saat mengunggah foto.");
@@ -205,7 +209,7 @@ export function ProfileForm({
           </div>
           <p className="text-xs text-muted-foreground mt-0.5">
             Sesuai kebijakan agensi, Anda dapat mengubah foto profil, nama lengkap, dan username.
-            {isStaff && " Setiap perubahan harus disetujui (di-ACC) terlebih dahulu oleh Project Manager."}
+            {isStaff && " Setiap pergantian data profil harus disetujui (ACC) terlebih dahulu oleh Admin."}
           </p>
         </div>
 
@@ -457,7 +461,7 @@ export function ProfileForm({
                   <span>Memproses...</span>
                 </>
               ) : isStaff ? (
-                <span>Ajukan Perubahan Profil ke Admin</span>
+                <span>Ajukan Perubahan</span>
               ) : (
                 <span>Simpan Perubahan Profil</span>
               )}

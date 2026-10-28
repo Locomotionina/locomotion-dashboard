@@ -390,7 +390,17 @@ export async function uploadAvatarAction(formData: FormData) {
     const base64Data = buffer.toString("base64");
     const base64Url = `data:${inspection.mime};base64,${base64Data}`;
 
-    // 5. Save verified Base64 image to database
+    // 5. For STAFF users: Do NOT save directly to user table!
+    // Staff profile changes (including avatar photo) require Admin approval via ProfileUpdateRequest.
+    if (!isElevated) {
+      return {
+        success: true,
+        url: base64Url,
+        message: "Foto profil berhasil diverifikasi! Klik 'Ajukan Perubahan' di bawah agar Admin dapat meninjau dan menyetujuinya.",
+      };
+    }
+
+    // Save directly for Admin / Management
     await prisma.user.update({
       where: { id: targetUserId },
       data: {
@@ -501,18 +511,25 @@ export async function updateProfileAction(formData: FormData) {
     },
   });
 
-  // Notify Project Managers
-  const managers = await prisma.user.findMany({
-    where: { role: "MANAGEMENT" },
+  // Notify Admins and Managers about the profile change request
+  const adminsAndManagers = await prisma.user.findMany({
+    where: {
+      role: { in: ["ADMIN", "MANAGEMENT"] },
+      isApproved: true,
+      isSuspended: false,
+    },
+    select: { id: true },
   });
-  for (const m of managers) {
-    await prisma.notification.create({
-      data: {
-        userId: m.id,
+
+  if (adminsAndManagers.length > 0) {
+    await prisma.notification.createMany({
+      data: adminsAndManagers.map((admin) => ({
+        userId: admin.id,
         title: "Permintaan Perubahan Profil Staf",
-        message: `${currentUser.name} (@${currentUser.username}) mengajukan perubahan nama/username/foto profil.`,
+        message: `${currentUser.name} (@${currentUser.username}) mengajukan perubahan data profil (foto/nama/username). Silakan tinjau dan setujui.`,
+        type: "INFO",
         link: "/management",
-      },
+      })),
     });
   }
 
@@ -521,14 +538,14 @@ export async function updateProfileAction(formData: FormData) {
   return {
     success: true,
     pendingApproval: true,
-    message: "Permintaan perubahan profil berhasil dikirim! Menunggu persetujuan (ACC) dari Project Manager.",
+    message: "Permintaan perubahan profil berhasil diajukan! Menunggu persetujuan Admin.",
   };
 }
 
 export async function approveProfileUpdateAction(requestId: string) {
   const currentUser = await getCurrentUser();
   if (!currentUser || (currentUser.role !== "MANAGEMENT" && currentUser.role !== "ADMIN")) {
-    return { success: false, error: "Akses ditolak: Hanya Project Manager / Admin yang dapat menyetujui perubahan profil." };
+    return { success: false, error: "Akses ditolak: Hanya Admin / Management yang dapat menyetujui perubahan profil." };
   }
 
   const req = await prisma.profileUpdateRequest.findUnique({
@@ -553,7 +570,7 @@ export async function approveProfileUpdateAction(requestId: string) {
     }
   }
 
-  // Update staff user
+  // Update staff user in database
   await prisma.user.update({
     where: { id: req.userId },
     data: {
@@ -569,19 +586,38 @@ export async function approveProfileUpdateAction(requestId: string) {
     data: { status: "APPROVED" },
   });
 
-  // Send notification to staff
-  await prisma.notification.create({
-    data: {
-      userId: req.userId,
-      title: "Perubahan Profil Disetujui",
-      message: `Perubahan profil Anda menjadi "${req.requestedName}" (@${req.requestedUsername}) telah disetujui oleh Project Manager.`,
-      link: "/profile",
+  // Broadcast notification to ALL active users in the entire system
+  const allUsers = await prisma.user.findMany({
+    where: {
+      isApproved: true,
+      isSuspended: false,
     },
+    select: { id: true },
   });
 
+  if (allUsers.length > 0) {
+    await prisma.notification.createMany({
+      data: allUsers.map((u) => {
+        const isSelf = u.id === req.userId;
+        return {
+          userId: u.id,
+          title: isSelf ? "Perubahan Profil Anda Disetujui" : "Pembaruan Profil Anggota Tim",
+          message: isSelf
+            ? `Selamat! Perubahan profil Anda menjadi "${req.requestedName}" (@${req.requestedUsername}) telah disetujui oleh Admin.`
+            : `Profil anggota tim ${req.user.name} telah resmi diperbarui menjadi "${req.requestedName}" (@${req.requestedUsername}).`,
+          type: "TASK_APPROVED",
+          link: isSelf ? "/profile" : "/dashboard",
+        };
+      }),
+    });
+  }
+
+  revalidatePath("/", "layout");
   revalidatePath("/management");
   revalidatePath("/profile");
-  return { success: true, message: "Perubahan profil staf berhasil disetujui." };
+  revalidatePath("/dashboard");
+  revalidatePath("/admin/users");
+  return { success: true, message: "Perubahan profil staf berhasil disetujui dan disiarkan ke semua anggota tim." };
 }
 
 export async function rejectProfileUpdateAction(requestId: string, adminNote?: string) {
