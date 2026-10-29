@@ -413,6 +413,39 @@ export function ManagementClient({
     }
   };
 
+  const getRoleBadge = (role: string) => {
+    switch (role?.toUpperCase()) {
+      case "ADMIN":
+        return (
+          <Badge
+            variant="destructive"
+            className="text-[10px] uppercase font-bold tracking-wider"
+          >
+            ADMIN
+          </Badge>
+        );
+      case "MANAGEMENT":
+        return (
+          <Badge
+            variant="purple"
+            className="text-[10px] uppercase font-bold tracking-wider"
+          >
+            MANAGEMENT
+          </Badge>
+        );
+      case "STAFF":
+      default:
+        return (
+          <Badge
+            variant="cyan"
+            className="text-[10px] uppercase font-semibold tracking-wider"
+          >
+            STAFF
+          </Badge>
+        );
+    }
+  };
+
   const totalPendingApprovals =
     pendingProfileList.length + pendingPasswordList.length;
 
@@ -828,12 +861,7 @@ export function ManagementClient({
                         <Badge variant="outline" className="text-[10px] rounded-full">
                           {staff.department}
                         </Badge>
-                        <Badge
-                          variant={staff.role === "MANAGEMENT" ? "purple" : "cyan"}
-                          className="text-[10px]"
-                        >
-                          {staff.role === "MANAGEMENT" ? "Admin" : "Staff"}
-                        </Badge>
+                        {getRoleBadge(staff.role)}
                       </div>
                       <p className="text-xs text-muted-foreground font-medium">
                         {staff.position} • <span className="font-mono">@{staff.username}</span>
