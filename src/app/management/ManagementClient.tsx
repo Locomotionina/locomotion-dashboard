@@ -831,10 +831,10 @@ export function ManagementClient({
                 }`}
               >
                 {/* Staff Member Master Row */}
-                <div className="p-5 flex flex-col lg:flex-row lg:items-center justify-between gap-5">
-                  {/* Left: Avatar & Info */}
-                  <div className="flex items-center gap-4 min-w-0 flex-1">
-                    <div className="relative flex-shrink-0">
+                <div className="p-5 flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+                  {/* Left Column (User Identity - Vertical Stack) */}
+                  <div className="flex items-start sm:items-center gap-4 flex-1 min-w-0">
+                    <div className="relative flex-shrink-0 mt-0.5 sm:mt-0">
                       <Avatar className="h-12 w-12 ring-2 ring-border/80">
                         <AvatarImage src={staff.avatarUrl || ""} />
                         <AvatarFallback className="bg-blue-500/10 text-blue-600 dark:text-blue-400 font-bold">
@@ -853,166 +853,180 @@ export function ManagementClient({
                       />
                     </div>
 
-                    <div className="min-w-0 flex-1 space-y-1">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <h3
-                          className="font-bold text-base text-foreground truncate"
-                          title={staff.name}
-                        >
-                          {staff.name}
-                        </h3>
-                        <div className="flex items-center gap-1.5 flex-shrink-0">
-                          <Badge variant="outline" className="text-[10px] rounded-full flex-shrink-0">
-                            {staff.department}
-                          </Badge>
-                          {getRoleBadge(staff.role)}
-                        </div>
+                    <div className="flex-1 min-w-0 flex flex-col gap-1">
+                      {/* Line 1 (Name): Render full user name with prominent font weight */}
+                      <h3
+                        className="font-semibold text-base sm:text-lg text-slate-900 dark:text-slate-100 truncate sm:overflow-visible sm:whitespace-normal"
+                        title={staff.name}
+                      >
+                        {staff.name}
+                      </h3>
+
+                      {/* Line 2 (Role, Department & Tier Badge) */}
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-xs font-medium text-slate-700 dark:text-slate-300">
+                          {staff.position}
+                        </span>
+                        <span className="text-slate-300 dark:text-slate-600">•</span>
+                        <Badge variant="outline" className="text-[10px] rounded-full shrink-0">
+                          {staff.department}
+                        </Badge>
+                        {getRoleBadge(staff.role)}
+                        <span className="font-mono text-xs text-slate-500 dark:text-slate-400">
+                          @{staff.username}
+                        </span>
                       </div>
-                      <p className="text-xs text-muted-foreground font-medium truncate">
-                        {staff.position} • <span className="font-mono">@{staff.username}</span>
-                      </p>
-                      {staff.email && (
-                        <p className="text-[11px] text-muted-foreground/80 flex items-center gap-1 mt-0.5 truncate">
-                          <Mail className="h-3 w-3 flex-shrink-0" />
-                          <span className="truncate">{staff.email}</span>
+
+                      {/* Line 3 (Metadata/Email) */}
+                      {staff.email ? (
+                        <p className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1.5 mt-0.5">
+                          <Mail className="h-3.5 w-3.5 shrink-0 text-slate-400 dark:text-slate-500" />
+                          <span>{staff.email}</span>
+                        </p>
+                      ) : (
+                        <p className="text-xs text-slate-400 dark:text-slate-500 italic mt-0.5">
+                          No email provided
                         </p>
                       )}
                     </div>
                   </div>
 
-                  {/* Middle: Capacity Meter & Progress Bar */}
-                  <div className="w-full lg:w-72 xl:w-80 flex-shrink-0 space-y-1.5">
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="font-semibold text-muted-foreground flex items-center gap-1.5">
-                        <span>Workload Capacity:</span>
-                        <span className="text-foreground font-bold">
-                          {staff.activeTaskCount} / 5 tasks
+                  {/* Right Column (Workload Metrics & Action Buttons) */}
+                  <div className="flex-shrink-0 w-full lg:w-[440px] xl:w-[480px] flex flex-col gap-3 pt-3 lg:pt-0 border-t lg:border-t-0 border-border/40">
+                    {/* Workload Capacity & Progress Bar */}
+                    <div className="space-y-1.5 p-3 rounded-xl bg-secondary/30 border border-border/40">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="font-semibold text-muted-foreground flex items-center gap-1.5">
+                          <span>Workload Capacity:</span>
+                          <span className="text-foreground font-bold">
+                            {staff.activeTaskCount} / 5 tasks
+                          </span>
                         </span>
-                      </span>
-                      <span className="font-mono text-xs font-bold text-foreground">
-                        {staff.capacityScore}%
-                      </span>
+                        <span className="font-mono text-xs font-bold text-foreground">
+                          {staff.capacityScore}%
+                        </span>
+                      </div>
+
+                      <Progress
+                        value={staff.capacityScore}
+                        indicatorClassName={getProgressBarColor(staff.capacityStatus)}
+                      />
+
+                      <div className="flex items-center justify-between text-[11px] text-muted-foreground pt-0.5">
+                        <span>{staff.todoCount} To Do • {staff.inProgressCount} On Progress</span>
+                        <span>{staff.archivedCount} Completed in Archive</span>
+                      </div>
                     </div>
 
-                    <Progress
-                      value={staff.capacityScore}
-                      indicatorClassName={getProgressBarColor(staff.capacityStatus)}
-                    />
+                    {/* Status Badge & Action Buttons */}
+                    <div className="flex items-center justify-between sm:justify-end gap-2 flex-wrap">
+                      <div>
+                        {getCapacityBadge(staff.capacityStatus, staff.activeTaskCount)}
+                      </div>
 
-                    <div className="flex items-center justify-between text-[11px] text-muted-foreground">
-                      <span>{staff.todoCount} To Do • {staff.inProgressCount} On Progress</span>
-                      <span>{staff.archivedCount} Completed in Archive</span>
-                    </div>
-                  </div>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="text-xs h-8 gap-1.5 rounded-xl border-blue-500/30 text-blue-600 dark:text-blue-400 hover:bg-blue-500/10 hover:border-blue-500/50"
+                          onClick={() => {
+                            setSelectedStaffReportId(staff.id);
+                            setSelectedStaffName(staff.name);
+                            setIsStaffReportOpen(true);
+                          }}
+                          title={`Export CSV & Ringkasan Naratif untuk ${staff.name}`}
+                        >
+                          <FileSpreadsheet className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
+                          <span>Export CSV</span>
+                        </Button>
 
-                  {/* Right: Status Pill & Actions */}
-                  <div className="flex items-center justify-between lg:justify-end gap-2.5 flex-shrink-0 pt-2 lg:pt-0 border-t lg:border-t-0 border-border/40 flex-wrap">
-                    <div>
-                      {getCapacityBadge(staff.capacityStatus, staff.activeTaskCount)}
-                    </div>
-
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="text-xs h-8 gap-1.5 rounded-xl border-blue-500/30 text-blue-600 dark:text-blue-400 hover:bg-blue-500/10 hover:border-blue-500/50"
-                        onClick={() => {
-                          setSelectedStaffReportId(staff.id);
-                          setSelectedStaffName(staff.name);
-                          setIsStaffReportOpen(true);
-                        }}
-                        title={`Export CSV & Ringkasan Naratif untuk ${staff.name}`}
-                      >
-                        <FileSpreadsheet className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
-                        <span>Export CSV</span>
-                      </Button>
-
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="text-xs h-8 gap-1 rounded-xl"
-                        onClick={() => toggleExpand(staff.id)}
-                      >
-                        <span>{isExpanded ? "Hide Tasks" : "Tasks"}</span>
-                        {isExpanded ? (
-                          <ChevronUp className="h-3.5 w-3.5" />
-                        ) : (
-                          <ChevronDown className="h-3.5 w-3.5" />
-                        )}
-                      </Button>
-
-                      <Button
-                        asChild
-                        size="sm"
-                        variant="ghost"
-                        className="text-xs h-8 text-blue-600 dark:text-blue-400 hover:text-blue-500 rounded-xl"
-                        title="View Staff Workspace"
-                      >
-                        <Link href={`/dashboard?userId=${staff.id}`}>
-                          <span>Workspace</span>
-                          <ArrowRight className="h-3.5 w-3.5 ml-1" />
-                        </Link>
-                      </Button>
-
-                      {/* Admin Actions Dropdown for this Staff */}
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="h-8 w-8 p-0 rounded-xl"
-                            title="Menu Aksi Admin"
-                          >
-                            <MoreVertical className="h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="w-52 rounded-xl">
-                          <DropdownMenuItem
-                            onClick={() => openEditModal(staff)}
-                            className="gap-2 text-xs font-medium cursor-pointer"
-                          >
-                            <Pencil className="h-3.5 w-3.5 text-blue-500" />
-                            <span>Edit Profil Staf</span>
-                          </DropdownMenuItem>
-
-                          <DropdownMenuItem
-                            onClick={() => openResetModal(staff)}
-                            className="gap-2 text-xs font-medium cursor-pointer"
-                          >
-                            <KeyRound className="h-3.5 w-3.5 text-amber-500" />
-                            <span>Reset Password Staf</span>
-                          </DropdownMenuItem>
-
-                          {!isSelf && (
-                            <>
-                              <DropdownMenuSeparator />
-                              <DropdownMenuItem
-                                onClick={() => handleToggleAdmin(staff)}
-                                className="gap-2 text-xs font-medium cursor-pointer"
-                              >
-                                <Shield className="h-3.5 w-3.5 text-purple-500" />
-                                <span>
-                                  {staff.role === "MANAGEMENT"
-                                    ? "Cabut Hak Admin"
-                                    : "Tunjuk Sebagai Admin"}
-                                </span>
-                              </DropdownMenuItem>
-
-                              <DropdownMenuSeparator />
-                              <DropdownMenuItem
-                                onClick={() => {
-                                  setDeletingStaff(staff);
-                                  setModalError(null);
-                                }}
-                                className="gap-2 text-xs font-medium text-rose-600 dark:text-rose-400 focus:text-rose-600 cursor-pointer"
-                              >
-                                <Trash2 className="h-3.5 w-3.5" />
-                                <span>Hapus Staf</span>
-                              </DropdownMenuItem>
-                            </>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="text-xs h-8 gap-1 rounded-xl"
+                          onClick={() => toggleExpand(staff.id)}
+                        >
+                          <span>{isExpanded ? "Hide Tasks" : "Tasks"}</span>
+                          {isExpanded ? (
+                            <ChevronUp className="h-3.5 w-3.5" />
+                          ) : (
+                            <ChevronDown className="h-3.5 w-3.5" />
                           )}
-                        </DropdownMenuContent>
-                      </DropdownMenu>
+                        </Button>
+
+                        <Button
+                          asChild
+                          size="sm"
+                          variant="ghost"
+                          className="text-xs h-8 text-blue-600 dark:text-blue-400 hover:text-blue-500 rounded-xl"
+                          title="View Staff Workspace"
+                        >
+                          <Link href={`/dashboard?userId=${staff.id}`}>
+                            <span>Workspace</span>
+                            <ArrowRight className="h-3.5 w-3.5 ml-1" />
+                          </Link>
+                        </Button>
+
+                        {/* Admin Actions Dropdown for this Staff */}
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-8 w-8 p-0 rounded-xl"
+                              title="Menu Aksi Admin"
+                            >
+                              <MoreVertical className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="w-52 rounded-xl">
+                            <DropdownMenuItem
+                              onClick={() => openEditModal(staff)}
+                              className="gap-2 text-xs font-medium cursor-pointer"
+                            >
+                              <Pencil className="h-3.5 w-3.5 text-blue-500" />
+                              <span>Edit Profil Staf</span>
+                            </DropdownMenuItem>
+
+                            <DropdownMenuItem
+                              onClick={() => openResetModal(staff)}
+                              className="gap-2 text-xs font-medium cursor-pointer"
+                            >
+                              <KeyRound className="h-3.5 w-3.5 text-amber-500" />
+                              <span>Reset Password Staf</span>
+                            </DropdownMenuItem>
+
+                            {!isSelf && (
+                              <>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem
+                                  onClick={() => handleToggleAdmin(staff)}
+                                  className="gap-2 text-xs font-medium cursor-pointer"
+                                >
+                                  <Shield className="h-3.5 w-3.5 text-purple-500" />
+                                  <span>
+                                    {staff.role === "MANAGEMENT"
+                                      ? "Cabut Hak Admin"
+                                      : "Tunjuk Sebagai Admin"}
+                                  </span>
+                                </DropdownMenuItem>
+
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem
+                                  onClick={() => {
+                                    setDeletingStaff(staff);
+                                    setModalError(null);
+                                  }}
+                                  className="gap-2 text-xs font-medium text-rose-600 dark:text-rose-400 focus:text-rose-600 cursor-pointer"
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                  <span>Hapus Staf</span>
+                                </DropdownMenuItem>
+                              </>
+                            )}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
                     </div>
                   </div>
                 </div>
