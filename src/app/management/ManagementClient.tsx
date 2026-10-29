@@ -833,8 +833,8 @@ export function ManagementClient({
                 {/* Staff Member Master Row */}
                 <div className="p-5 flex flex-col lg:flex-row lg:items-center justify-between gap-5">
                   {/* Left: Avatar & Info */}
-                  <div className="flex items-center gap-4 min-w-[260px]">
-                    <div className="relative">
+                  <div className="flex items-center gap-4 min-w-0 flex-1">
+                    <div className="relative flex-shrink-0">
                       <Avatar className="h-12 w-12 ring-2 ring-border/80">
                         <AvatarImage src={staff.avatarUrl || ""} />
                         <AvatarFallback className="bg-blue-500/10 text-blue-600 dark:text-blue-400 font-bold">
@@ -853,30 +853,35 @@ export function ManagementClient({
                       />
                     </div>
 
-                    <div>
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <h3 className="font-bold text-base text-foreground">
+                    <div className="min-w-0 flex-1 space-y-1">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <h3
+                          className="font-bold text-base text-foreground truncate"
+                          title={staff.name}
+                        >
                           {staff.name}
                         </h3>
-                        <Badge variant="outline" className="text-[10px] rounded-full">
-                          {staff.department}
-                        </Badge>
-                        {getRoleBadge(staff.role)}
+                        <div className="flex items-center gap-1.5 flex-shrink-0">
+                          <Badge variant="outline" className="text-[10px] rounded-full flex-shrink-0">
+                            {staff.department}
+                          </Badge>
+                          {getRoleBadge(staff.role)}
+                        </div>
                       </div>
-                      <p className="text-xs text-muted-foreground font-medium">
+                      <p className="text-xs text-muted-foreground font-medium truncate">
                         {staff.position} • <span className="font-mono">@{staff.username}</span>
                       </p>
                       {staff.email && (
-                        <p className="text-[11px] text-muted-foreground/80 flex items-center gap-1 mt-0.5">
-                          <Mail className="h-3 w-3" />
-                          <span>{staff.email}</span>
+                        <p className="text-[11px] text-muted-foreground/80 flex items-center gap-1 mt-0.5 truncate">
+                          <Mail className="h-3 w-3 flex-shrink-0" />
+                          <span className="truncate">{staff.email}</span>
                         </p>
                       )}
                     </div>
                   </div>
 
                   {/* Middle: Capacity Meter & Progress Bar */}
-                  <div className="flex-1 max-w-md space-y-1.5">
+                  <div className="w-full lg:w-72 xl:w-80 flex-shrink-0 space-y-1.5">
                     <div className="flex items-center justify-between text-xs">
                       <span className="font-semibold text-muted-foreground flex items-center gap-1.5">
                         <span>Workload Capacity:</span>
@@ -901,7 +906,7 @@ export function ManagementClient({
                   </div>
 
                   {/* Right: Status Pill & Actions */}
-                  <div className="flex items-center justify-between lg:justify-end gap-2.5 shrink-0 pt-2 lg:pt-0 border-t lg:border-t-0 border-border/40 flex-wrap">
+                  <div className="flex items-center justify-between lg:justify-end gap-2.5 flex-shrink-0 pt-2 lg:pt-0 border-t lg:border-t-0 border-border/40 flex-wrap">
                     <div>
                       {getCapacityBadge(staff.capacityStatus, staff.activeTaskCount)}
                     </div>
