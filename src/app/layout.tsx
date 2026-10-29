@@ -5,6 +5,7 @@ import "./globals.css";
 import { getCurrentUser } from "@/lib/auth";
 import { Navbar } from "@/components/Navbar";
 import { ThemeProvider } from "@/components/ThemeProvider";
+import { OnboardingModal } from "@/components/OnboardingModal";
 
 const geistSans = localFont({
   src: "./fonts/GeistVF.woff",
@@ -77,6 +78,13 @@ export default async function RootLayout({
                 </span>
               </div>
             </footer>
+          )}
+
+          {currentUser && (
+            <OnboardingModal
+              isOpenInitially={currentUser.hasCompletedOnboarding === false}
+              userName={currentUser.name}
+            />
           )}
         </ThemeProvider>
       </body>

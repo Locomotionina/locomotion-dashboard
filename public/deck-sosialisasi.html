@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Deck Sosialisasi Locomotion Dashboard</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+  <style>
+    body {
+      font-family: 'Plus Jakarta Sans', sans-serif;
+    }
+    .mono {
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .slide {
+      display: none;
+    }
+    .slide.active {
+      display: flex;
+    }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col justify-between select-none overflow-hidden">
+
+  <!-- Top Bar -->
+  <header class="h-16 border-b border-slate-800/80 px-6 sm:px-10 flex items-center justify-between bg-slate-900/60 backdrop-blur-md z-20">
+    <div class="flex items-center gap-3">
+      <div class="h-8 w-8 rounded-xl bg-blue-600 flex items-center justify-center font-bold text-white shadow-lg shadow-blue-500/20">
+        L
+      </div>
+      <div>
+        <h1 class="text-sm font-bold tracking-tight text-white">Locomotion Dashboard</h1>
+        <p class="text-[10px] text-slate-400">Slide Deck Sosialisasi Internal Tim</p>
+      </div>
+    </div>
+
+    <!-- Center Slide Counter -->
+    <div class="flex items-center gap-2 bg-slate-800/60 border border-slate-700/60 px-3 py-1 rounded-full text-xs font-semibold mono">
+      <span id="currentSlideNum" class="text-blue-400">1</span>
+      <span class="text-slate-500">/</span>
+      <span id="totalSlidesNum" class="text-slate-400">8</span>
+    </div>
+
+    <!-- Right Controls -->
+    <div class="flex items-center gap-2">
+      <button id="toggleNotesBtn" class="text-xs px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium transition flex items-center gap-1.5 border border-slate-700/50">
+        <span>🎙️ Speaker Notes</span>
+      </button>
+      <button id="fullscreenBtn" class="text-xs px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-medium transition shadow-md shadow-blue-600/20">
+        ⛶ Fullscreen
+      </button>
+    </div>
+  </header>
+
+  <!-- Slide Stage -->
+  <main class="flex-1 relative flex items-center justify-center p-4 sm:p-8 max-w-7xl mx-auto w-full">
+
+    <!-- SLIDE 1: Welcome & Login -->
+    <div class="slide active w-full flex-col lg:flex-row items-center gap-8 animate-fade-in" data-title="1. Welcome to Locomotion Dashboard">
+      <div class="flex-1 space-y-4">
+        <span class="px-3 py-1 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-400 text-xs font-semibold mono uppercase tracking-wider">
+          Pengenalan Awal
+        </span>
+        <h2 class="text-3xl sm:text-4xl font-extrabold text-white leading-tight">
+          Selamat Datang di <span class="text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-indigo-400">Locomotion Dashboard</span>
+        </h2>
+        <p class="text-sm sm:text-base text-slate-300 leading-relaxed">
+          Pusat kendali operasional agensi kreatif modern. Mengintegrasikan manajemen alur tugas, pelacakan waktu presisi, telemetri revisi, dan arsip deliverable proyek.
+        </p>
+        <div class="grid grid-cols-2 gap-3 pt-2">
+          <div class="p-3.5 rounded-xl bg-slate-900 border border-slate-800">
+            <h4 class="text-xs font-bold text-slate-200">🔒 Akun Sudah Siap</h4>
+            <p class="text-[11px] text-slate-400 mt-1">Setiap staf telah memiliki username & password default terdaftar.</p>
+          </div>
+          <div class="p-3.5 rounded-xl bg-slate-900 border border-slate-800">
+            <h4 class="text-xs font-bold text-slate-200">🚀 Anti-Tenggelam</h4>
+            <p class="text-[11px] text-slate-400 mt-1">Tidak ada lagi brief atau task tercecer di history chat WhatsApp.</p>
+          </div>
+        </div>
+      </div>
+      <div class="flex-1 w-full max-w-xl">
+        <div class="rounded-2xl border border-slate-800 bg-slate-900/60 p-2 shadow-2xl shadow-blue-900/10">
+          <img src="screenshots/01_login.png" alt="Login Page" class="rounded-xl w-full object-cover border border-slate-800">
+        </div>
+      </div>
+    </div>
+
+    <!-- SLIDE 2: Workspace Staf -->
+    <div class="slide w-full flex-col lg:flex-row items-center gap-8" data-title="2. Workspace Personal Staf">
+      <div class="flex-1 space-y-4">
+        <span class="px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 text-xs font-semibold mono uppercase tracking-wider">
+          Meja Kerja Harian
+        </span>
+        <h2 class="text-3xl sm:text-4xl font-extrabold text-white leading-tight">
+          Personal Dashboard <span class="text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-cyan-400">(/dashboard)</span>
+        </h2>
+        <p class="text-sm sm:text-base text-slate-300 leading-relaxed">
+          Semua tugas yang ditugaskan kepada Anda terkumpul rapi di sini. Tidak perlu lagi bingung apa yang harus dikerjakan hari ini.
+        </p>
+        <ul class="space-y-2 text-xs sm:text-sm text-slate-300">
+          <li class="flex items-center gap-2">
+            <span class="h-2 w-2 rounded-full bg-blue-400"></span>
+            <span><strong>Kolom Status Jelas:</strong> To Do → On Progress → In Review → Done.</span>
+          </li>
+          <li class="flex items-center gap-2">
+            <span class="h-2 w-2 rounded-full bg-amber-400"></span>
+            <span><strong>Prioritas & Deadline:</strong> Terlihat jelas mana yang Urgent dan batas waktunya.</span>
+          </li>
+          <li class="flex items-center gap-2">
+            <span class="h-2 w-2 rounded-full bg-emerald-400"></span>
+            <span><strong>Konteks PIC:</strong> Menampilkan siapa pemberi tugas dan siapa penerimanya.</span>
+          </li>
+        </ul>
+      </div>
+      <div class="flex-1 w-full max-w-xl">
+        <div class="rounded-2xl border border-slate-800 bg-slate-900/60 p-2 shadow-2xl">
+          <img src="screenshots/02_dashboard_tasks.png" alt="Staff Workspace" class="rounded-xl w-full object-cover border border-slate-800">
+        </div>
+      </div>
+    </div>
+
+    <!-- SLIDE 3: Live Timer & Telemetri Revisi -->
+    <div class="slide w-full flex-col lg:flex-row items-center gap-8" data-title="3. Live Stopwatch Timer & Revisi">
+      <div class="flex-1 space-y-4">
+        <span class="px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-semibold mono uppercase tracking-wider">
+          Pencatatan Presisi
+        </span>
+        <h2 class="text-3xl sm:text-4xl font-extrabold text-white leading-tight">
+          Live Timer & <span class="text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-teal-400">Revision Telemetry</span>
+        </h2>
+        <p class="text-sm sm:text-base text-slate-300 leading-relaxed">
+          Bukan untuk mengawasi setiap detik Anda, melainkan mendokumentasikan <strong class="text-white">usaha nyata tim</strong> dan melindungi Anda dari beban revisi berlebih.
+        </p>
+        <div class="space-y-2.5 pt-1">
+          <div class="p-3 rounded-xl bg-slate-900 border border-slate-800 flex items-start gap-3">
+            <span class="text-lg">⏱️</span>
+            <div>
+              <h4 class="text-xs font-bold text-slate-200">Start / Pause Timer</h4>
+              <p class="text-[11px] text-slate-400">Klik Start saat mulai fokus kerja di software (Figma/Premiere/dll), Pause saat rehat.</p>
+            </div>
+          </div>
+          <div class="p-3 rounded-xl bg-slate-900 border border-slate-800 flex items-start gap-3">
+            <span class="text-lg">🛡️</span>
+            <div>
+              <h4 class="text-xs font-bold text-slate-200">Perlindungan Revisi (Round 1, Round 2...)</h4>
+              <p class="text-[11px] text-slate-400">Waktu revisi dicatat terpisah dari durasi awal. Bukti otentik jika klien sering minta rombak di luar brief awal.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="flex-1 w-full max-w-xl">
+        <div class="rounded-2xl border border-slate-800 bg-slate-900/60 p-2 shadow-2xl">
+          <img src="screenshots/02_dashboard_tasks.png" alt="Live Timer" class="rounded-xl w-full object-cover border border-slate-800">
+        </div>
+      </div>
+    </div>
+
+    <!-- SLIDE 4: Katalog Proyek -->
+    <div class="slide w-full flex-col lg:flex-row items-center gap-8" data-title="4. Katalog Proyek Terpusat">
+      <div class="flex-1 space-y-4">
+        <span class="px-3 py-1 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-400 text-xs font-semibold mono uppercase tracking-wider">
+          Kolaborasi Antar Tim
+        </span>
+        <h2 class="text-3xl sm:text-4xl font-extrabold text-white leading-tight">
+          Katalog Proyek <span class="text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-indigo-400">(/projects)</span>
+        </h2>
+        <p class="text-sm sm:text-base text-slate-300 leading-relaxed">
+          Semua proyek agensi—mulai dari tahap Pitching, Active, hingga Delivered—tercantum transparan untuk seluruh tim.
+        </p>
+        <div class="grid grid-cols-2 gap-3 pt-2">
+          <div class="p-3 rounded-xl bg-slate-900 border border-slate-800">
+            <div class="text-blue-400 font-bold text-xs">🏷️ Kode Proyek Unik</div>
+            <p class="text-[11px] text-slate-400 mt-0.5">Memudahkan penamaan file, aset, dan folder drive bersama.</p>
+          </div>
+          <div class="p-3 rounded-xl bg-slate-900 border border-slate-800">
+            <div class="text-indigo-400 font-bold text-xs">📈 Status Proyek Real-Time</div>
+            <p class="text-[11px] text-slate-400 mt-0.5">Ketahui apakah proyek sedang masa review klien atau aktif.</p>
+          </div>
+        </div>
+      </div>
+      <div class="flex-1 w-full max-w-xl">
+        <div class="rounded-2xl border border-slate-800 bg-slate-900/60 p-2 shadow-2xl">
+          <img src="screenshots/04_projects.png" alt="Projects Catalog" class="rounded-xl w-full object-cover border border-slate-800">
+        </div>
+      </div>
+    </div>
+
+    <!-- SLIDE 5: Detail Proyek & PIC Roster -->
+    <div class="slide w-full flex-col lg:flex-row items-center gap-8" data-title="5. Deliverables & PIC Roster">
+      <div class="flex-1 space-y-4">
+        <span class="px-3 py-1 rounded-full bg-purple-500/10 border border-purple-500/20 text-purple-400 text-xs font-semibold mono uppercase tracking-wider">
+          Hub Aset Terpusat
+        </span>
+        <h2 class="text-3xl sm:text-4xl font-extrabold text-white leading-tight">
+          Deliverables & <span class="text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-pink-400">PIC Roster</span>
+        </h2>
+        <p class="text-sm sm:text-base text-slate-300 leading-relaxed">
+          Buka halaman detail proyek untuk menemukan semua tautan aset resmi dan daftar siapa penanggung jawab masing-masing bagian.
+        </p>
+        <ul class="space-y-2 text-xs sm:text-sm text-slate-300">
+          <li class="flex items-center gap-2">
+            <span class="h-2 w-2 rounded-full bg-purple-400"></span>
+            <span><strong>Tautan Penting:</strong> Pitch Deck, Creative Deck, Preview URL, Final Assets.</span>
+          </li>
+          <li class="flex items-center gap-2">
+            <span class="h-2 w-2 rounded-full bg-pink-400"></span>
+            <span><strong>Automated PIC Roster:</strong> Daftar otomatis staf yang memegang tugas dalam proyek ini.</span>
+          </li>
+          <li class="flex items-center gap-2">
+            <span class="h-2 w-2 rounded-full bg-blue-400"></span>
+            <span><strong>Koordinasi Cepat:</strong> Tak perlu tanya di grup "siapa yang pegang aset X?", cukup cek roster.</span>
+          </li>
+        </ul>
+      </div>
+      <div class="flex-1 w-full max-w-xl">
+        <div class="rounded-2xl border border-slate-800 bg-slate-900/60 p-2 shadow-2xl">
+          <img src="screenshots/05_project_detail.png" alt="Project Detail & Deliverables" class="rounded-xl w-full object-cover border border-slate-800">
+        </div>
+      </div>
+    </div>
+
+    <!-- SLIDE 6: Management Workload Radar -->
+    <div class="slide w-full flex-col lg:flex-row items-center gap-8" data-title="6. Management Workload Radar">
+      <div class="flex-1 space-y-4">
+        <span class="px-3 py-1 rounded-full bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs font-semibold mono uppercase tracking-wider">
+          Transparansi Beban Kerja
+        </span>
+        <h2 class="text-3xl sm:text-4xl font-extrabold text-white leading-tight">
+          Management <span class="text-transparent bg-clip-text bg-gradient-to-r from-rose-400 to-amber-400">Workload Radar</span>
+        </h2>
+        <p class="text-sm sm:text-base text-slate-300 leading-relaxed">
+          Alat bagi Project Manager dan Lead untuk memantau kapasitas tim secara adil, mencegah staf kelelahan (*burnout*), dan menyeimbangkan delegasi tugas.
+        </p>
+        <div class="grid grid-cols-3 gap-2 pt-1 text-center">
+          <div class="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20">
+            <div class="text-xs font-bold text-emerald-400">🟢 Available</div>
+            <div class="text-[10px] text-slate-400 mt-0.5">0 - 1 Task Aktif</div>
+          </div>
+          <div class="p-2.5 rounded-xl bg-blue-500/10 border border-blue-500/20">
+            <div class="text-xs font-bold text-blue-400">🔵 Optimal Flow</div>
+            <div class="text-[10px] text-slate-400 mt-0.5">2 - 4 Task Aktif</div>
+          </div>
+          <div class="p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/20">
+            <div class="text-xs font-bold text-rose-400">🔴 Overloaded</div>
+            <div class="text-[10px] text-slate-400 mt-0.5">5+ Task (Stop Delegasi)</div>
+          </div>
+        </div>
+      </div>
+      <div class="flex-1 w-full max-w-xl">
+        <div class="rounded-2xl border border-slate-800 bg-slate-900/60 p-2 shadow-2xl">
+          <img src="screenshots/03_management_radar.png" alt="Workload Radar" class="rounded-xl w-full object-cover border border-slate-800">
+        </div>
+      </div>
+    </div>
+
+    <!-- SLIDE 7: Profil Staf -->
+    <div class="slide w-full flex-col lg:flex-row items-center gap-8" data-title="7. Profil & Keamanan Akun">
+      <div class="flex-1 space-y-4">
+        <span class="px-3 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 text-xs font-semibold mono uppercase tracking-wider">
+          Personalisasi Akun
+        </span>
+        <h2 class="text-3xl sm:text-4xl font-extrabold text-white leading-tight">
+          Profil & Pengaturan <span class="text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-400">(/profile)</span>
+        </h2>
+        <p class="text-sm sm:text-base text-slate-300 leading-relaxed">
+          Lengkapi identitas profesional Anda di platform agensi ini.
+        </p>
+        <ul class="space-y-2 text-xs sm:text-sm text-slate-300">
+          <li class="flex items-center gap-2">
+            <span class="h-2 w-2 rounded-full bg-cyan-400"></span>
+            <span><strong>Foto Profil / Avatar:</strong> Upload foto wajah profesional (maksimal 400 KB).</span>
+          </li>
+          <li class="flex items-center gap-2">
+            <span class="h-2 w-2 rounded-full bg-blue-400"></span>
+            <span><strong>Bio & Keahlian:</strong> Tuliskan bidang spesialisasi Anda di agensi.</span>
+          </li>
+          <li class="flex items-center gap-2">
+            <span class="h-2 w-2 rounded-full bg-purple-400"></span>
+            <span><strong>Keamanan Kata Sandi:</strong> Ajukan permohonan reset password jika perlu mengganti password awal.</span>
+          </li>
+        </ul>
+      </div>
+      <div class="flex-1 w-full max-w-xl">
+        <div class="rounded-2xl border border-slate-800 bg-slate-900/60 p-2 shadow-2xl">
+          <img src="screenshots/06_profile.png" alt="Profile Settings" class="rounded-xl w-full object-cover border border-slate-800">
+        </div>
+      </div>
+    </div>
+
+    <!-- SLIDE 8: 3 Golden Rules -->
+    <div class="slide w-full flex-col items-center text-center justify-center space-y-6 max-w-3xl mx-auto" data-title="8. Tiga Aturan Main Harian">
+      <span class="px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-400 text-xs font-semibold mono uppercase tracking-wider">
+        Komitmen Harian
+      </span>
+      <h2 class="text-3xl sm:text-5xl font-extrabold text-white">
+        3 Kebiasaan Emas <span class="text-transparent bg-clip-text bg-gradient-to-r from-amber-400 to-rose-400">(Daily Golden Habits)</span>
+      </h2>
+      <p class="text-slate-300 text-sm sm:text-base max-w-xl">
+        Hanya butuh 3 langkah sederhana setiap hari agar alur kerja seluruh agensi tetap harmonis dan transparan:
+      </p>
+
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 text-left w-full pt-2">
+        <div class="p-5 rounded-2xl bg-slate-900 border border-slate-800 space-y-2">
+          <div class="h-10 w-10 rounded-xl bg-blue-500/10 text-blue-400 font-bold flex items-center justify-center text-lg">
+            1
+          </div>
+          <h3 class="text-sm font-bold text-white">Pagi Hari (Jam Masuk)</h3>
+          <p class="text-xs text-slate-400 leading-relaxed">
+            Buka <span class="mono text-blue-400">/dashboard</span> dan cek kartu tugas di kolom <strong>To Do</strong>.
+          </p>
+        </div>
+
+        <div class="p-5 rounded-2xl bg-slate-900 border border-slate-800 space-y-2">
+          <div class="h-10 w-10 rounded-xl bg-emerald-500/10 text-emerald-400 font-bold flex items-center justify-center text-lg">
+            2
+          </div>
+          <h3 class="text-sm font-bold text-white">Saat Eksekusi</h3>
+          <p class="text-xs text-slate-400 leading-relaxed">
+            Klik <strong>Start Timer</strong> saat fokus, jeda saat rehat, lalu geser ke <strong>In Review</strong> beserta link preview.
+          </p>
+        </div>
+
+        <div class="p-5 rounded-2xl bg-slate-900 border border-slate-800 space-y-2">
+          <div class="h-10 w-10 rounded-xl bg-purple-500/10 text-purple-400 font-bold flex items-center justify-center text-lg">
+            3
+          </div>
+          <h3 class="text-sm font-bold text-white">Sore Hari (Jam Pulang)</h3>
+          <p class="text-xs text-slate-400 leading-relaxed">
+            Pastikan tidak ada timer yang tertinggal berjalan semalaman.
+          </p>
+        </div>
+      </div>
+
+      <div class="pt-4 text-slate-400 text-xs">
+        🎉 Selesai! Saatnya sesi tanya jawab (Q&A) dengan seluruh tim.
+      </div>
+    </div>
+
+  </main>
+
+  <!-- Speaker Notes Drawer (Togglable) -->
+  <aside id="speakerNotesDrawer" class="hidden fixed bottom-16 left-0 right-0 bg-slate-900/95 border-t border-slate-700/80 p-4 sm:p-6 backdrop-blur-md z-30 max-h-48 overflow-y-auto">
+    <div class="max-w-4xl mx-auto space-y-1">
+      <div class="flex items-center justify-between text-xs font-bold text-blue-400 uppercase tracking-wider mono">
+        <span>🎙️ Speaker Notes: <span id="notesSlideTitle">Slide 1</span></span>
+        <button id="closeNotesBtn" class="text-slate-400 hover:text-white">✕ Tutup</button>
+      </div>
+      <p id="speakerNotesText" class="text-xs sm:text-sm text-slate-300 leading-relaxed"></p>
+    </div>
+  </aside>
+
+  <!-- Bottom Navigation Bar -->
+  <footer class="h-16 border-t border-slate-800/80 px-6 sm:px-10 flex items-center justify-between bg-slate-900/80 z-20">
+    <div class="text-xs text-slate-500 hidden sm:block">
+      Navigasi: Tombol <kbd class="px-1.5 py-0.5 rounded bg-slate-800 border border-slate-700 text-slate-300 mono text-[10px]">←</kbd> dan <kbd class="px-1.5 py-0.5 rounded bg-slate-800 border border-slate-700 text-slate-300 mono text-[10px]">→</kbd> atau <kbd class="px-1.5 py-0.5 rounded bg-slate-800 border border-slate-700 text-slate-300 mono text-[10px]">Spasi</kbd>
+    </div>
+
+    <div class="flex items-center gap-3 ml-auto">
+      <button id="prevBtn" class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-semibold text-xs transition disabled:opacity-40 disabled:cursor-not-allowed border border-slate-700">
+        ← Sebelumnya
+      </button>
+      <button id="nextBtn" class="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs transition shadow-md shadow-blue-600/20">
+        Selanjutnya →
+      </button>
+    </div>
+  </footer>
+
+  <script>
+    const speakerNotes = [
+      "Buka sesi sosialisasi dengan menjelaskan problem nyata di agensi: brief sering tercecer di WhatsApp, revisi berulang kali tanpa catatan, dan jam kerja tidak terhitung adil. Sampaikan bahwa akun semua staf sudah dibuatkan dan aktif.",
+      "Perkenalkan halaman /dashboard sebagai meja kerja digital pribadi mereka. Tunjukkan 4 kolom status (To Do, On Progress, In Review, Done). Tekankan bahwa apa yang ada di kolom To Do adalah prioritas utama mereka hari ini.",
+      "Tunjukkan cara menyalakan Stopwatch Timer saat mulai bekerja di software kreatif. Tekankan bahwa waktu revisi dicatat terpisah (Round 1, Round 2) untuk membuktikan kepada klien/manajemen jika waktu molor disebabkan oleh revisi berulang.",
+      "Jelaskan menu /projects untuk melihat gambaran besar proyek agensi. Setiap proyek memiliki kode unik (misal: LOCO-DB1) yang wajib digunakan saat menamai aset/folder drive.",
+      "Perlihatkan halaman detail proyek: tempat mencari link Pitch Deck, Creative Deck, dan Google Drive. Tunjukkan Automated PIC Roster agar staf tahu siapa desainer, editor, atau copywriter proyek tersebut tanpa perlu bertanya di grup chat.",
+      "Tunjukkan sekilas menu /management untuk memberi rasa aman pada staf. Jelaskan bahwa status 'Overloaded (5+ task)' dirancang agar Project Manager tahu kapan staf sudah kepenuhan beban dan tidak boleh ditambahi tugas baru.",
+      "Ajak staf membuka /profile untuk melengkapi foto profil (maks 400 KB), mengisi bio, dan mencoba fitur permintaan ganti kata sandi.",
+      "Tutup sesi sosialisasi dengan membacakan 3 Kebiasaan Emas Harian: Cek To Do di pagi hari, jalankan timer saat eksekusi dan kirim link preview saat selesai, lalu pastikan timer tidak tertinggal semalaman saat jam pulang."
+    ];
+
+    const slides = document.querySelectorAll('.slide');
+    const totalSlides = slides.length;
+    let currentSlide = 0;
+
+    const currentSlideNum = document.getElementById('currentSlideNum');
+    const totalSlidesNum = document.getElementById('totalSlidesNum');
+    const prevBtn = document.getElementById('prevBtn');
+    const nextBtn = document.getElementById('nextBtn');
+    const speakerNotesText = document.getElementById('speakerNotesText');
+    const notesSlideTitle = document.getElementById('notesSlideTitle');
+    const speakerNotesDrawer = document.getElementById('speakerNotesDrawer');
+    const toggleNotesBtn = document.getElementById('toggleNotesBtn');
+    const closeNotesBtn = document.getElementById('closeNotesBtn');
+    const fullscreenBtn = document.getElementById('fullscreenBtn');
+
+    totalSlidesNum.textContent = totalSlides;
+
+    function updateSlide() {
+      slides.forEach((s, idx) => {
+        s.classList.toggle('active', idx === currentSlide);
+      });
+      currentSlideNum.textContent = currentSlide + 1;
+      prevBtn.disabled = currentSlide === 0;
+      nextBtn.textContent = currentSlide === totalSlides - 1 ? 'Selesai 🎉' : 'Selanjutnya →';
+
+      // Update speaker notes
+      notesSlideTitle.textContent = slides[currentSlide].dataset.title || `Slide ${currentSlide + 1}`;
+      speakerNotesText.textContent = speakerNotes[currentSlide] || "";
+    }
+
+    function nextSlide() {
+      if (currentSlide < totalSlides - 1) {
+        currentSlide++;
+        updateSlide();
+      }
+    }
+
+    function prevSlide() {
+      if (currentSlide > 0) {
+        currentSlide--;
+        updateSlide();
+      }
+    }
+
+    nextBtn.addEventListener('click', nextSlide);
+    prevBtn.addEventListener('click', prevSlide);
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowRight' || e.key === ' ') {
+        e.preventDefault();
+        nextSlide();
+      } else if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        prevSlide();
+      }
+    });
+
+    toggleNotesBtn.addEventListener('click', () => {
+      speakerNotesDrawer.classList.toggle('hidden');
+    });
+
+    closeNotesBtn.addEventListener('click', () => {
+      speakerNotesDrawer.classList.add('hidden');
+    });
+
+    fullscreenBtn.addEventListener('click', () => {
+      if (!document.fullscreenElement) {
+        document.documentElement.requestFullscreen();
+      } else {
+        document.exitFullscreen();
+      }
+    });
+
+    updateSlide();
+  </script>
+</body>
+</html>

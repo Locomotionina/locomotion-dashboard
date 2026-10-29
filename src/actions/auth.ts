@@ -1032,3 +1032,36 @@ export async function deleteStaffAction(targetUserId: string) {
   revalidatePath("/management");
   return { success: true, message: `Staf ${target.name} (@${target.username}) berhasil dihapus dari sistem.` };
 }
+
+export async function completeOnboardingAction() {
+  const currentUser = await getCurrentUser();
+  if (!currentUser) {
+    return { success: false, error: "Unauthorized. Silakan login terlebih dahulu." };
+  }
+
+  await prisma.user.update({
+    where: { id: currentUser.id },
+    data: { hasCompletedOnboarding: true },
+  });
+
+  revalidatePath("/");
+  revalidatePath("/dashboard");
+  revalidatePath("/management");
+  return { success: true };
+}
+
+export async function resetOnboardingAction() {
+  const currentUser = await getCurrentUser();
+  if (!currentUser) {
+    return { success: false, error: "Unauthorized." };
+  }
+
+  await prisma.user.update({
+    where: { id: currentUser.id },
+    data: { hasCompletedOnboarding: false },
+  });
+
+  revalidatePath("/");
+  revalidatePath("/dashboard");
+  return { success: true };
+}

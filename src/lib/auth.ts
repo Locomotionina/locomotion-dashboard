@@ -21,6 +21,7 @@ export interface SessionUser {
   department: string;
   isApproved?: boolean;
   isSuspended?: boolean;
+  hasCompletedOnboarding?: boolean;
   avatarUrl: string | null;
   bio: string | null;
 }
@@ -56,6 +57,7 @@ export const getCurrentUser = cache(async (): Promise<SessionUser | null> => {
         isSuspended: true,
         avatarUrl: true,
         bio: true,
+        hasCompletedOnboarding: true,
       },
     });
 

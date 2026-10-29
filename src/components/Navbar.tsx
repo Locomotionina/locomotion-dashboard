@@ -190,6 +190,13 @@ export function Navbar({ user }: NavbarProps) {
                   <span>My Profile</span>
                 </Link>
               </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => window.dispatchEvent(new CustomEvent("open-onboarding"))}
+                className="flex items-center gap-2 cursor-pointer text-blue-600 dark:text-blue-400"
+              >
+                <Sparkles className="h-4 w-4" />
+                <span>Panduan Sistem (Onboarding)</span>
+              </DropdownMenuItem>
               <DropdownMenuItem asChild>
                 <Link href="/dashboard" prefetch={true} className="flex items-center gap-2 cursor-pointer">
                   <CheckSquare className="h-4 w-4" />
