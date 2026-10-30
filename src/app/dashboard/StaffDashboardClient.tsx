@@ -15,6 +15,8 @@ import {
   approveTaskAction,
   requestTaskPreviewAction,
   completeTaskAction,
+  createFolderAction,
+  deleteFolderAction,
 } from "@/actions/tasks";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -24,6 +26,12 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   Dialog,
   DialogContent,
@@ -43,6 +51,12 @@ import {
   RotateCcw,
   Trash2,
   FolderKanban,
+  Folder,
+  FolderPlus,
+  FolderOpen,
+  ArrowRight,
+  ArrowLeft,
+  CheckSquare,
   Edit,
   Sparkles,
   Loader2,
@@ -94,6 +108,11 @@ interface TaskItem {
   title: string;
   description: string | null;
   taskOutputType?: string | null;
+  folderId?: string | null;
+  folder?: {
+    id: string;
+    name: string;
+  } | null;
   status: string;
   priority: string;
   dueDate: Date | null;
@@ -140,6 +159,11 @@ export interface ReviewRequestItem {
   title: string;
   description: string | null;
   taskOutputType?: string | null;
+  folderId?: string | null;
+  folder?: {
+    id: string;
+    name: string;
+  } | null;
   status: string;
   priority: string;
   dueDate: Date | null;
@@ -191,6 +215,11 @@ interface DelegatedTaskItem {
   title: string;
   description: string | null;
   taskOutputType?: string | null;
+  folderId?: string | null;
+  folder?: {
+    id: string;
+    name: string;
+  } | null;
   status: string;
   priority: string;
   dueDate: Date | null;
@@ -248,6 +277,34 @@ interface AgencyTaskItem extends TaskItem {
   } | null;
 }
 
+export interface TaskFolderItem {
+  id: string;
+  name: string;
+  userId: string;
+  projectId?: string | null;
+  project?: {
+    id: string;
+    name: string;
+    clientName: string;
+    code: string;
+    status: string;
+  } | null;
+  tasks: {
+    id: string;
+    title: string;
+    status: string;
+    priority: string;
+    taskOutputType?: string | null;
+    estimatedHours?: number | null;
+    dueDate?: Date | null;
+    timerActive?: boolean;
+    currentRevisionRound?: number;
+    createdAt?: Date | string;
+  }[];
+  createdAt: Date | string;
+  updatedAt?: Date | string;
+}
+
 interface StaffDashboardClientProps {
   user: any;
   activeTasks: TaskItem[];
@@ -255,6 +312,7 @@ interface StaffDashboardClientProps {
   delegatedTasks?: DelegatedTaskItem[];
   reviewRequests?: ReviewRequestItem[];
   allTasks?: AgencyTaskItem[];
+  folders?: TaskFolderItem[];
   staffMembers?: StaffMemberOption[];
   projects: ProjectOption[];
   stats: {
@@ -335,6 +393,7 @@ export function StaffDashboardClient({
   delegatedTasks = [],
   reviewRequests = [],
   allTasks = [],
+  folders = [],
   staffMembers = [],
   projects,
   stats,
@@ -349,6 +408,13 @@ export function StaffDashboardClient({
   const [createOpen, setCreateOpen] = useState(false);
   const [taskOutputTypeOption, setTaskOutputTypeOption] = useState<string>("Thumbnail");
   const [customOutputType, setCustomOutputType] = useState<string>("");
+  const [createFolderIdForTask, setCreateFolderIdForTask] = useState<string>("NONE");
+
+  // Folder system state
+  const [createFolderOpen, setCreateFolderOpen] = useState(false);
+  const [folderLoading, setFolderLoading] = useState(false);
+  const [activeFolderId, setActiveFolderId] = useState<string | null>(null);
+  const [rootTaskFilter, setRootTaskFilter] = useState<"all" | "standalone">("all");
 
   const [editTask, setEditTask] = useState<TaskItem | DelegatedTaskItem | null>(null);
   const [editTaskOutputTypeOption, setEditTaskOutputTypeOption] = useState<string>("Thumbnail");
@@ -491,7 +557,38 @@ export function StaffDashboardClient({
       setCreateOpen(false);
       setTaskOutputTypeOption("Thumbnail");
       setCustomOutputType("");
+      setCreateFolderIdForTask("NONE");
       router.refresh();
+    }
+  };
+
+  const handleCreateFolder = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    setFolderLoading(true);
+
+    const formData = new FormData(e.currentTarget);
+    const res = await createFolderAction(formData);
+
+    setFolderLoading(false);
+    if (res.success) {
+      setCreateFolderOpen(false);
+      router.refresh();
+    } else {
+      alert(res.error || "Gagal membuat folder.");
+    }
+  };
+
+  const handleDeleteFolder = async (folderId: string) => {
+    if (confirm("Apakah Anda yakin ingin menghapus folder ini? Tugas di dalamnya tidak akan terhapus dan akan tetap ada sebagai tugas mandiri.")) {
+      const res = await deleteFolderAction(folderId);
+      if (res.success) {
+        if (activeFolderId === folderId) {
+          setActiveFolderId(null);
+        }
+        router.refresh();
+      } else {
+        alert(res.error || "Gagal menghapus folder.");
+      }
     }
   };
 
@@ -908,6 +1005,27 @@ export function StaffDashboardClient({
     });
   })();
 
+  const getFolderTasks = (folder: TaskFolderItem) => {
+    const map = new Map<string, any>();
+    if (Array.isArray(folder.tasks)) {
+      folder.tasks.forEach((t) => map.set(t.id, t));
+    }
+    allMyTasks.filter((t) => t.folderId === folder.id).forEach((t) => map.set(t.id, t));
+    return Array.from(map.values());
+  };
+
+  const activeFolder = activeFolderId ? folders.find((f) => f.id === activeFolderId) : null;
+
+  const tasksToRender = (() => {
+    if (activeFolderId) {
+      return filteredActiveTasks.filter((t) => t.folderId === activeFolderId);
+    }
+    if (folders.length > 0 && rootTaskFilter === "standalone") {
+      return filteredActiveTasks.filter((t) => !t.folderId);
+    }
+    return filteredActiveTasks;
+  })();
+
   // Calendar Widget Computations
   const allWorkspaceTasks = isAdminOrPM && allTasks.length > 0 ? allTasks : [...activeTasks, ...archivedTasks, ...delegatedTasks];
   const tasksByDateMap: Record<string, typeof allWorkspaceTasks> = {};
@@ -1059,6 +1177,48 @@ export function StaffDashboardClient({
             <span>Export Report & Ringkasan</span>
           </Button>
 
+          {/* Creation Menu: + Create Dropdown */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button className="gap-2 rounded-xl bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 text-white shadow-sm hover:scale-[1.02] active:scale-[0.98] transition-all duration-200 border-0 h-10 px-4 font-semibold">
+                <Plus className="h-4 w-4" />
+                <span>+ Create</span>
+                <ChevronDown className="h-3.5 w-3.5 opacity-70 ml-0.5" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-60 p-2 rounded-2xl border-border/80 shadow-2xl bg-card/95 backdrop-blur-md">
+              <DropdownMenuItem
+                onClick={() => {
+                  setCreateFolderIdForTask(activeFolderId || "NONE");
+                  setCreateOpen(true);
+                }}
+                className="flex items-center gap-3 p-2.5 rounded-xl cursor-pointer hover:bg-blue-500/10 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+              >
+                <div className="h-8 w-8 rounded-xl bg-blue-500/15 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0">
+                  <CheckSquare className="h-4 w-4" />
+                </div>
+                <div className="min-w-0">
+                  <p className="font-bold text-xs text-foreground">Create / Delegate Task</p>
+                  <p className="text-[10px] text-muted-foreground truncate">Task, deliverable, & timer</p>
+                </div>
+              </DropdownMenuItem>
+
+              <DropdownMenuItem
+                onClick={() => setCreateFolderOpen(true)}
+                className="flex items-center gap-3 p-2.5 rounded-xl cursor-pointer hover:bg-amber-500/10 hover:text-amber-600 dark:hover:text-amber-400 transition-colors mt-1"
+              >
+                <div className="h-8 w-8 rounded-xl bg-amber-500/15 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0">
+                  <FolderPlus className="h-4 w-4" />
+                </div>
+                <div className="min-w-0">
+                  <p className="font-bold text-xs text-foreground">Create Folder</p>
+                  <p className="text-[10px] text-muted-foreground truncate">Wadah grouping tugas & deliverable</p>
+                </div>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          {/* Task Creation Modal */}
           <Dialog open={createOpen} onOpenChange={(open) => {
             setCreateOpen(open);
             if (!open) {
@@ -1066,12 +1226,6 @@ export function StaffDashboardClient({
               setCustomOutputType("");
             }
           }}>
-            <DialogTrigger asChild>
-              <Button className="gap-2 rounded-xl bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 text-white shadow-sm hover:scale-[1.02] active:scale-[0.98] transition-all duration-200 border-0 h-10 px-4">
-                <Plus className="h-4 w-4" />
-                <span>Create / Delegate Task</span>
-              </Button>
-            </DialogTrigger>
           <DialogContent className="max-w-lg rounded-2xl">
             <form onSubmit={handleCreateTask}>
               <DialogHeader>
@@ -1189,6 +1343,41 @@ export function StaffDashboardClient({
                   </select>
                 </div>
 
+                {/* Folder (Optional) Selector */}
+                <div className="space-y-1.5">
+                  <Label htmlFor="folderId" className="text-foreground font-semibold flex items-center gap-1.5">
+                    <Folder className="h-3.5 w-3.5 text-amber-500" />
+                    <span>Folder (Optional)</span>
+                  </Label>
+                  <select
+                    id="folderId"
+                    name="folderId"
+                    value={createFolderIdForTask}
+                    onChange={(e) => {
+                      const selectedFId = e.target.value;
+                      setCreateFolderIdForTask(selectedFId);
+                      if (selectedFId !== "NONE") {
+                        const found = folders.find((f) => f.id === selectedFId);
+                        if (found?.projectId) {
+                          const projEl = document.getElementById("projectId") as HTMLSelectElement;
+                          if (projEl) projEl.value = found.projectId;
+                        }
+                      }
+                    }}
+                    className="flex h-10 w-full rounded-xl border border-input bg-card px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring text-foreground font-medium"
+                  >
+                    <option value="NONE">None (Standalone Task / Tanpa Folder)</option>
+                    {folders.map((f) => (
+                      <option key={f.id} value={f.id}>
+                        📁 {f.name} {f.project ? `(${f.project.code})` : ""}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-[11px] text-muted-foreground">
+                    Pilih folder jika task ini ingin dikelompokkan ke dalam wadah deliverable tertentu.
+                  </p>
+                </div>
+
                 <div className="space-y-1.5">
                   <Label htmlFor="description">Task Description / Brief</Label>
                   <Textarea
@@ -1267,6 +1456,82 @@ export function StaffDashboardClient({
                 >
                   {loading && <Loader2 className="h-4 w-4 animate-spin" />}
                   <span>Save / Deliver Task</span>
+                </Button>
+              </DialogFooter>
+            </form>
+          </DialogContent>
+        </Dialog>
+
+        {/* Create Folder Modal */}
+        <Dialog open={createFolderOpen} onOpenChange={setCreateFolderOpen}>
+          <DialogContent className="max-w-md rounded-2xl">
+            <form onSubmit={handleCreateFolder}>
+              <DialogHeader>
+                <div className="flex items-center gap-2">
+                  <div className="h-9 w-9 rounded-xl bg-amber-500/15 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0">
+                    <FolderPlus className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <DialogTitle>Create New Folder</DialogTitle>
+                    <DialogDescription className="text-xs">
+                      Buat wadah folder untuk mengelompokkan deliverable di workspace.
+                    </DialogDescription>
+                  </div>
+                </div>
+              </DialogHeader>
+
+              <div className="space-y-4 py-4">
+                <div className="space-y-1.5">
+                  <Label htmlFor="folder-name" className="text-foreground font-semibold">
+                    Folder Title / Name *
+                  </Label>
+                  <Input
+                    id="folder-name"
+                    name="name"
+                    placeholder="e.g. Social Media Assets Q4, Key Visuals 3D"
+                    required
+                    autoFocus
+                    className="rounded-xl"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="folder-projectId" className="text-foreground font-semibold">
+                    Related Project (Global Board)
+                  </Label>
+                  <select
+                    id="folder-projectId"
+                    name="projectId"
+                    defaultValue="NONE"
+                    className="flex h-10 w-full rounded-xl border border-input bg-card px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring text-foreground font-medium"
+                  >
+                    <option value="NONE">None (General Agency Internal Folder)</option>
+                    {projects.map((proj) => (
+                      <option key={proj.id} value={proj.id}>
+                        {proj.code} • {proj.name} ({proj.clientName})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <DialogFooter>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setCreateFolderOpen(false)}
+                  className="rounded-xl"
+                  disabled={folderLoading}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  disabled={folderLoading}
+                  className="gap-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white border-0 shadow-sm"
+                >
+                  {folderLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <FolderPlus className="h-4 w-4" />}
+                  <span>Create Folder</span>
                 </Button>
               </DialogFooter>
             </form>
@@ -1596,44 +1861,343 @@ export function StaffDashboardClient({
 
         {/* Tab 1: Active Tasks (Assigned to Me) */}
         <TabsContent value="active" className="space-y-4">
-          {filteredActiveTasks.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-border/80 p-12 text-center space-y-3 bg-card/40">
-              <CheckCircle2 className="h-10 w-10 text-blue-500 mx-auto" />
-              <h3 className="text-base font-bold text-foreground">
-                {selectedDateFilter
-                  ? `Tidak ada task pada tanggal ${formatDisplayDate(selectedDateFilter)}`
-                  : statusFilter !== "ALL"
-                  ? `Tidak ada task dengan status "${statusFilter}"`
-                  : "No active tasks in this view"}
-              </h3>
-              <p className="text-xs text-muted-foreground max-w-sm mx-auto">
-                {selectedDateFilter || statusFilter !== "ALL"
-                  ? "Coba sesuaikan filter status, pilih tanggal lain di kalender, atau hapus filter untuk melihat semua tugas."
-                  : "All tasks are cleared or match another status filter. Ready to tackle a new agency deliverable?"}
-              </p>
-              {selectedDateFilter || statusFilter !== "ALL" ? (
+          {/* FOLDER VIEW BANNER (When inside a folder) */}
+          {activeFolderId !== null && (
+            <div className="rounded-2xl border border-amber-500/30 bg-amber-500/5 p-4 space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <Button
+                    onClick={() => setActiveFolderId(null)}
+                    variant="outline"
+                    size="sm"
+                    className="rounded-xl gap-1.5 font-bold text-xs shadow-sm bg-card hover:bg-muted"
+                  >
+                    <ArrowLeft className="h-3.5 w-3.5" />
+                    <span>Kembali ke Workspace</span>
+                  </Button>
+
+                  <div className="flex items-center gap-2.5">
+                    <div className="h-10 w-10 rounded-xl bg-amber-500/20 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0 border border-amber-500/30">
+                      <Folder className="h-5 w-5 fill-amber-500/30" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h2 className="text-base font-bold text-foreground">
+                          {activeFolder?.name || "Folder"}
+                        </h2>
+                        <Badge variant="outline" className="text-[10px] font-semibold bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/30">
+                          Folder View
+                        </Badge>
+                      </div>
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground mt-0.5">
+                        {activeFolder?.project ? (
+                          <span>Project: <strong className="text-foreground">{activeFolder.project.name} ({activeFolder.project.code})</strong></span>
+                        ) : (
+                          <span>Project: <strong className="text-foreground">Global Board</strong></span>
+                        )}
+                        <span>•</span>
+                        <span>
+                          {tasksToRender.length} {tasksToRender.length === 1 ? "Tugas" : "Tugas"}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 self-end sm:self-auto">
+                  <Button
+                    onClick={() => {
+                      setCreateFolderIdForTask(activeFolderId);
+                      setCreateOpen(true);
+                    }}
+                    size="sm"
+                    className="rounded-xl gap-1.5 text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white shadow-sm"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    <span>Tambah Tugas ke Folder</span>
+                  </Button>
+                  <Button
+                    onClick={() => handleDeleteFolder(activeFolderId)}
+                    variant="ghost"
+                    size="sm"
+                    className="rounded-xl text-xs text-muted-foreground hover:text-red-600 hover:bg-red-500/10"
+                    title="Hapus folder ini"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ROOT WORKSPACE: FOLDERS SECTION */}
+          {activeFolderId === null && folders.length > 0 && (
+            <div className="space-y-3 mb-6">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="h-7 w-7 rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center">
+                    <Folder className="h-4 w-4" />
+                  </div>
+                  <h3 className="text-sm font-bold text-foreground">
+                    Folders ({folders.length})
+                  </h3>
+                </div>
+                <Button
+                  onClick={() => setCreateFolderOpen(true)}
+                  variant="ghost"
+                  size="sm"
+                  className="text-xs h-7 text-muted-foreground hover:text-foreground gap-1"
+                >
+                  <FolderPlus className="h-3.5 w-3.5" />
+                  <span>New Folder</span>
+                </Button>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                {folders.map((folder) => {
+                  const folderTasks = getFolderTasks(folder);
+
+                  return (
+                    <div
+                      key={folder.id}
+                      className="group relative rounded-2xl border border-border/80 bg-card p-4 shadow-sm hover:shadow-md hover:border-amber-500/40 transition-all flex flex-col justify-between"
+                    >
+                      <div className="space-y-3">
+                        {/* Folder Header */}
+                        <div className="flex items-start justify-between gap-2">
+                          <div
+                            onClick={() => setActiveFolderId(folder.id)}
+                            className="flex items-center gap-2.5 min-w-0 cursor-pointer"
+                          >
+                            <div className="h-9 w-9 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0 border border-amber-500/20 group-hover:scale-105 transition-transform">
+                              <Folder className="h-5 w-5 fill-amber-500/20" />
+                            </div>
+                            <div className="min-w-0">
+                              <h4
+                                className="font-bold text-sm text-foreground truncate group-hover:text-amber-600 dark:group-hover:text-amber-400 transition-colors"
+                                title={folder.name}
+                              >
+                                {folder.name}
+                              </h4>
+                              {folder.project ? (
+                                <span
+                                  className="inline-flex items-center text-[11px] font-medium text-muted-foreground truncate max-w-[170px]"
+                                  title={`${folder.project.name} (${folder.project.code})`}
+                                >
+                                  📁 {folder.project.name}
+                                </span>
+                              ) : (
+                                <span className="text-[11px] text-muted-foreground">Global Board</span>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/20">
+                              {folderTasks.length} {folderTasks.length === 1 ? "task" : "tasks"}
+                            </span>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDeleteFolder(folder.id);
+                              }}
+                              className="h-7 w-7 rounded-lg flex items-center justify-center text-muted-foreground hover:text-red-600 hover:bg-red-500/10 transition-colors"
+                              title="Hapus folder"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Task Summary / Preview List (NO INFINITE HEIGHT - max-h-[130px] overflow-y-auto) */}
+                        <div className="pt-2 border-t border-border/40">
+                          <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1.5 flex items-center justify-between">
+                            <span>Task Preview</span>
+                            <span className="text-[10px] font-normal">{folderTasks.length} tugas</span>
+                          </div>
+
+                          <div className="max-h-[130px] overflow-y-auto pr-1 space-y-1.5 scrollbar-thin">
+                            {folderTasks.length === 0 ? (
+                              <div className="py-3 text-center text-xs text-muted-foreground/70 italic border border-dashed border-border/60 rounded-xl bg-muted/20">
+                                Belum ada task di folder ini
+                              </div>
+                            ) : (
+                              folderTasks.map((t) => (
+                                <div
+                                  key={t.id}
+                                  className="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-xl bg-muted/30 hover:bg-muted/60 transition-colors border border-border/40 text-xs"
+                                >
+                                  <div className="flex items-center gap-2 min-w-0">
+                                    <div
+                                      className={`h-2 w-2 rounded-full shrink-0 ${
+                                        t.status === "Done"
+                                          ? "bg-emerald-500"
+                                          : t.status === "In Progress" || t.status === "On Progress"
+                                          ? "bg-blue-500"
+                                          : t.status === "In Review"
+                                          ? "bg-purple-500"
+                                          : t.status === "Revision"
+                                          ? "bg-amber-500"
+                                          : "bg-slate-400"
+                                      }`}
+                                    />
+                                    <span className="truncate font-medium text-foreground text-xs" title={t.title}>
+                                      {t.title}
+                                    </span>
+                                  </div>
+                                  <div className="shrink-0 scale-90 origin-right">
+                                    {getStatusBadge(t.status, t.currentRevisionRound)}
+                                  </div>
+                                </div>
+                              ))
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Folder Navigation Button */}
+                      <div className="pt-3 mt-3 border-t border-border/50">
+                        <Button
+                          onClick={() => setActiveFolderId(folder.id)}
+                          variant="outline"
+                          size="sm"
+                          className="w-full justify-between rounded-xl text-xs font-semibold hover:bg-blue-600 hover:text-white hover:border-blue-600 dark:hover:bg-blue-600 dark:hover:text-white transition-all group/btn"
+                        >
+                          <span className="flex items-center gap-1.5">
+                            <FolderOpen className="h-3.5 w-3.5 text-amber-500 group-hover/btn:text-white transition-colors" />
+                            <span>Enter Folder</span>
+                          </span>
+                          <ArrowRight className="h-3.5 w-3.5 text-muted-foreground group-hover/btn:text-white transition-colors" />
+                        </Button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* ROOT WORKSPACE: TASK HEADER (When folders exist) */}
+          {activeFolderId === null && folders.length > 0 && (
+            <div className="flex items-center justify-between pt-2">
+              <div className="flex items-center gap-2">
+                <CheckSquare className="h-4 w-4 text-blue-500" />
+                <h3 className="text-sm font-bold text-foreground">
+                  {rootTaskFilter === "standalone" ? "Standalone Tasks" : "Active Tasks"}
+                  <span className="ml-1.5 text-xs text-muted-foreground font-normal">
+                    ({tasksToRender.length})
+                  </span>
+                </h3>
+              </div>
+              <div className="flex items-center gap-1 bg-muted/60 p-0.5 rounded-xl border border-border/50 text-xs">
+                <button
+                  onClick={() => setRootTaskFilter("all")}
+                  className={`px-2.5 py-1 rounded-lg font-medium transition-all ${
+                    rootTaskFilter === "all"
+                      ? "bg-card text-foreground shadow-xs font-bold"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  Semua Tugas ({filteredActiveTasks.length})
+                </button>
+                <button
+                  onClick={() => setRootTaskFilter("standalone")}
+                  className={`px-2.5 py-1 rounded-lg font-medium transition-all ${
+                    rootTaskFilter === "standalone"
+                      ? "bg-card text-foreground shadow-xs font-bold"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  Tanpa Folder ({filteredActiveTasks.filter((t) => !t.folderId).length})
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* TASKS LIST OR EMPTY STATE */}
+          {tasksToRender.length === 0 ? (
+            activeFolderId !== null ? (
+              <div className="rounded-2xl border border-dashed border-border/80 p-12 text-center space-y-3 bg-card/40">
+                <FolderOpen className="h-10 w-10 text-amber-500/70 mx-auto" />
+                <h3 className="text-base font-bold text-foreground">
+                  {statusFilter !== "ALL"
+                    ? `Tidak ada task dengan status "${statusFilter}" di folder ini`
+                    : "Folder ini masih kosong"}
+                </h3>
+                <p className="text-xs text-muted-foreground max-w-sm mx-auto">
+                  {statusFilter !== "ALL"
+                    ? "Coba sesuaikan filter status untuk melihat tugas lain di dalam folder ini."
+                    : "Belum ada task di dalam folder ini. Buat tugas baru atau pindahkan tugas ke folder ini."}
+                </p>
                 <Button
                   onClick={() => {
-                    setStatusFilter("ALL");
-                    setSelectedDateFilter("");
+                    setCreateFolderIdForTask(activeFolderId);
+                    setCreateOpen(true);
                   }}
                   size="sm"
-                  variant="outline"
-                  className="rounded-xl text-xs gap-1.5 font-semibold"
+                  className="gap-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white border-0 shadow-sm"
                 >
-                  <RotateCcw className="h-3.5 w-3.5" />
-                  <span>Reset Filter</span>
-                </Button>
-              ) : (
-                <Button onClick={() => setCreateOpen(true)} size="sm" className="gap-2 rounded-xl bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 text-white border-0 shadow-sm">
                   <Plus className="h-4 w-4" />
-                  <span>Create Task</span>
+                  <span>Tambah Task ke Folder</span>
                 </Button>
-              )}
-            </div>
+              </div>
+            ) : folders.length > 0 && rootTaskFilter === "standalone" && filteredActiveTasks.length > 0 ? (
+              <div className="rounded-2xl border border-dashed border-border/80 p-10 text-center space-y-3 bg-card/40">
+                <CheckCircle2 className="h-9 w-9 text-blue-500 mx-auto" />
+                <h3 className="text-base font-bold text-foreground">
+                  Semua tugas berada di dalam folder
+                </h3>
+                <p className="text-xs text-muted-foreground max-w-sm mx-auto">
+                  Tidak ada tugas mandiri (standalone). Anda dapat membuka salah satu folder di atas untuk melihat tugas, atau beralih ke pilihan &quot;Semua Tugas&quot;.
+                </p>
+                <Button
+                  onClick={() => setRootTaskFilter("all")}
+                  size="sm"
+                  variant="outline"
+                  className="rounded-xl text-xs font-semibold gap-1.5"
+                >
+                  <span>Tampilkan Semua Tugas ({filteredActiveTasks.length})</span>
+                </Button>
+              </div>
+            ) : (
+              <div className="rounded-2xl border border-dashed border-border/80 p-12 text-center space-y-3 bg-card/40">
+                <CheckCircle2 className="h-10 w-10 text-blue-500 mx-auto" />
+                <h3 className="text-base font-bold text-foreground">
+                  {selectedDateFilter
+                    ? `Tidak ada task pada tanggal ${formatDisplayDate(selectedDateFilter)}`
+                    : statusFilter !== "ALL"
+                    ? `Tidak ada task dengan status "${statusFilter}"`
+                    : "No active tasks in this view"}
+                </h3>
+                <p className="text-xs text-muted-foreground max-w-sm mx-auto">
+                  {selectedDateFilter || statusFilter !== "ALL"
+                    ? "Coba sesuaikan filter status, pilih tanggal lain di kalender, atau hapus filter untuk melihat semua tugas."
+                    : "All tasks are cleared or match another status filter. Ready to tackle a new agency deliverable?"}
+                </p>
+                {selectedDateFilter || statusFilter !== "ALL" ? (
+                  <Button
+                    onClick={() => {
+                      setStatusFilter("ALL");
+                      setSelectedDateFilter("");
+                    }}
+                    size="sm"
+                    variant="outline"
+                    className="rounded-xl text-xs gap-1.5 font-semibold"
+                  >
+                    <RotateCcw className="h-3.5 w-3.5" />
+                    <span>Reset Filter</span>
+                  </Button>
+                ) : (
+                  <Button onClick={() => setCreateOpen(true)} size="sm" className="gap-2 rounded-xl bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 text-white border-0 shadow-sm">
+                    <Plus className="h-4 w-4" />
+                    <span>Create Task</span>
+                  </Button>
+                )}
+              </div>
+            )
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-              {filteredActiveTasks.map((task) => {
+              {tasksToRender.map((task) => {
                 const isWorking = task.timerActive;
                 const isRevisionPhase = task.status === "Revision" || task.currentPhase === "REVISION";
                 const isReviewPhase = task.status === "In Review";
@@ -1672,6 +2236,17 @@ export function StaffDashboardClient({
                           ) : (
                             <span className="text-xs text-muted-foreground bg-secondary/80 px-2.5 py-0.5 rounded-full font-medium">
                               Operasional Internal
+                            </span>
+                          )}
+
+                          {task.folder && (
+                            <span
+                              onClick={() => setActiveFolderId(task.folder?.id || null)}
+                              className="inline-flex items-center gap-1.5 text-xs font-semibold text-amber-700 dark:text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 px-2.5 py-0.5 rounded-full border border-amber-500/25 cursor-pointer transition-colors"
+                              title={`Folder: ${task.folder.name} (Klik untuk masuk folder)`}
+                            >
+                              <Folder className="h-3 w-3 text-amber-500 shrink-0" />
+                              <span className="truncate max-w-[120px]">{task.folder.name}</span>
                             </span>
                           )}
 
@@ -2150,6 +2725,17 @@ export function StaffDashboardClient({
                             </span>
                           )}
 
+                          {task.folder && (
+                            <span
+                              onClick={() => setActiveFolderId(task.folder?.id || null)}
+                              className="inline-flex items-center gap-1.5 text-xs font-semibold text-amber-700 dark:text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 px-2.5 py-0.5 rounded-full border border-amber-500/25 cursor-pointer transition-colors"
+                              title={`Folder: ${task.folder.name} (Klik untuk masuk folder)`}
+                            >
+                              <Folder className="h-3 w-3 text-amber-500 shrink-0" />
+                              <span className="truncate max-w-[120px]">{task.folder.name}</span>
+                            </span>
+                          )}
+
                           <div className="flex items-center gap-1.5 flex-wrap">
                             {getStatusBadge(task.status, task.currentRevisionRound)}
                             {getPriorityBadge(task.priority)}
@@ -2513,6 +3099,17 @@ export function StaffDashboardClient({
                           ) : (
                             <span className="text-xs text-muted-foreground bg-secondary/80 px-2.5 py-0.5 rounded-full font-medium">
                               Operasional Internal
+                            </span>
+                          )}
+
+                          {task.folder && (
+                            <span
+                              onClick={() => setActiveFolderId(task.folder?.id || null)}
+                              className="inline-flex items-center gap-1.5 text-xs font-semibold text-amber-700 dark:text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 px-2.5 py-0.5 rounded-full border border-amber-500/25 cursor-pointer transition-colors"
+                              title={`Folder: ${task.folder.name} (Klik untuk masuk folder)`}
+                            >
+                              <Folder className="h-3 w-3 text-amber-500 shrink-0" />
+                              <span className="truncate max-w-[120px]">{task.folder.name}</span>
                             </span>
                           )}
 
@@ -3797,6 +4394,26 @@ export function StaffDashboardClient({
                     {projects.map((proj) => (
                       <option key={proj.id} value={proj.id}>
                         {proj.code} • {proj.name} ({proj.clientName})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="edit-folderId" className="text-foreground font-medium flex items-center gap-1.5">
+                    <Folder className="h-3.5 w-3.5 text-amber-500" />
+                    <span>Folder (Optional)</span>
+                  </Label>
+                  <select
+                    id="edit-folderId"
+                    name="folderId"
+                    defaultValue={(editTask as any).folderId || (editTask as any).folder?.id || "NONE"}
+                    className="flex h-10 w-full rounded-xl border border-input bg-card px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring text-foreground"
+                  >
+                    <option value="NONE">None (Standalone Task / Tanpa Folder)</option>
+                    {folders.map((f) => (
+                      <option key={f.id} value={f.id}>
+                        📁 {f.name} {f.project ? `(${f.project.code})` : ""}
                       </option>
                     ))}
                   </select>

@@ -16,6 +16,8 @@ export async function createTaskAction(formData: FormData) {
   const taskOutputTypeRaw = (formData.get("taskOutputType") as string) || "";
   const taskOutputType = taskOutputTypeRaw.trim() || null;
   const projectId = (formData.get("projectId") as string) || null;
+  const folderIdRaw = (formData.get("folderId") as string) || null;
+  const folderId = folderIdRaw === "NONE" || !folderIdRaw ? null : folderIdRaw;
   const priority = (formData.get("priority") as string) || "MEDIUM";
   const status = (formData.get("status") as string) || "To Do";
   const dueDateStr = formData.get("dueDate") as string;
@@ -40,6 +42,7 @@ export async function createTaskAction(formData: FormData) {
       userId: targetUserId,
       createdById: currentUser.id,
       projectId: projectId === "NONE" || !projectId ? null : projectId,
+      folderId,
       completedAt: status === "Done" ? new Date() : null,
       currentPhase: "INITIAL",
       currentRevisionRound: 0,
@@ -793,6 +796,8 @@ export async function updateTaskAction(formData: FormData) {
     const taskOutputTypeRaw = formData.get("taskOutputType") as string | null;
     const taskOutputType = taskOutputTypeRaw !== null ? taskOutputTypeRaw.trim() || null : undefined;
     const projectId = (formData.get("projectId") as string) || null;
+    const folderIdRaw = formData.get("folderId") as string | null;
+    const folderId = folderIdRaw !== null ? (folderIdRaw === "NONE" || !folderIdRaw ? null : folderIdRaw) : undefined;
     const priority = formData.get("priority") as string;
     const status = formData.get("status") as string;
     const dueDateStr = formData.get("dueDate") as string;
@@ -821,6 +826,7 @@ export async function updateTaskAction(formData: FormData) {
         title: title.trim(),
         description: description?.trim() || null,
         ...(taskOutputType !== undefined ? { taskOutputType } : {}),
+        ...(folderId !== undefined ? { folderId } : {}),
         projectId: projectId === "NONE" || !projectId ? null : projectId,
         priority: priority || task.priority,
         status: status || task.status,
@@ -882,6 +888,105 @@ export async function deleteTaskAction(taskId: string) {
   }
 }
 
+export async function createFolderAction(formData: FormData) {
+  try {
+    const currentUser = await getCurrentUser();
+    if (!currentUser) return { success: false, error: "Unauthorized" };
+
+    const name = formData.get("name") as string;
+    const projectId = (formData.get("projectId") as string) || null;
+
+    if (!name || name.trim().length === 0) {
+      return { success: false, error: "Folder title is required." };
+    }
+
+    const folder = await prisma.taskFolder.create({
+      data: {
+        name: name.trim(),
+        userId: currentUser.id,
+        projectId: projectId === "NONE" || !projectId ? null : projectId,
+      },
+      include: {
+        project: {
+          select: {
+            id: true,
+            name: true,
+            clientName: true,
+            code: true,
+            status: true,
+          },
+        },
+        tasks: {
+          select: {
+            id: true,
+            title: true,
+            status: true,
+            priority: true,
+            taskOutputType: true,
+            estimatedHours: true,
+            dueDate: true,
+          },
+        },
+      },
+    });
+
+    revalidatePath("/dashboard");
+    revalidatePath("/projects");
+    return { success: true, folder };
+  } catch (err: any) {
+    console.error("Error in createFolderAction:", err);
+    return { success: false, error: err.message || "Gagal membuat folder." };
+  }
+}
+
+export async function deleteFolderAction(folderId: string) {
+  try {
+    const currentUser = await getCurrentUser();
+    if (!currentUser) return { success: false, error: "Unauthorized" };
+
+    const folder = await prisma.taskFolder.findUnique({
+      where: { id: folderId },
+    });
+    if (!folder) return { success: false, error: "Folder not found" };
+
+    if (
+      currentUser.role !== "MANAGEMENT" &&
+      currentUser.role !== "ADMIN" &&
+      folder.userId !== currentUser.id
+    ) {
+      return { success: false, error: "Akses ditolak: Anda tidak memiliki wewenang untuk menghapus folder ini." };
+    }
+
+    await prisma.taskFolder.delete({
+      where: { id: folderId },
+    });
+
+    revalidatePath("/dashboard");
+    return { success: true };
+  } catch (err: any) {
+    console.error("Error in deleteFolderAction:", err);
+    return { success: false, error: err.message || "Gagal menghapus folder." };
+  }
+}
+
+export async function setTaskFolderAction(taskId: string, folderId: string | null) {
+  try {
+    const currentUser = await getCurrentUser();
+    if (!currentUser) return { success: false, error: "Unauthorized" };
+
+    await prisma.task.update({
+      where: { id: taskId },
+      data: { folderId: folderId === "NONE" ? null : folderId },
+    });
+
+    revalidatePath("/dashboard");
+    return { success: true };
+  } catch (err: any) {
+    console.error("Error setting task folder:", err);
+    return { success: false, error: err.message || "Gagal mengatur folder task." };
+  }
+}
+
 export async function getStaffDashboardData(targetUserId?: string) {
   const currentUser = await getCurrentUser();
   if (!currentUser) return null;
@@ -906,6 +1011,7 @@ export async function getStaffDashboardData(targetUserId?: string) {
     staffMembers,
     targetUser,
     allTasks,
+    folders,
   ] = await Promise.all([
     // 1. Active tasks assigned to this user ("To Do", "On Progress", "In Review", "Revision")
     prisma.task.findMany({
@@ -921,6 +1027,12 @@ export async function getStaffDashboardData(targetUserId?: string) {
             clientName: true,
             code: true,
             status: true,
+          },
+        },
+        folder: {
+          select: {
+            id: true,
+            name: true,
           },
         },
         revisions: {
@@ -967,6 +1079,12 @@ export async function getStaffDashboardData(targetUserId?: string) {
             clientName: true,
             code: true,
             status: true,
+          },
+        },
+        folder: {
+          select: {
+            id: true,
+            name: true,
           },
         },
         revisions: {
@@ -1028,6 +1146,12 @@ export async function getStaffDashboardData(targetUserId?: string) {
             status: true,
           },
         },
+        folder: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
         revisions: {
           orderBy: { round: "asc" },
         },
@@ -1078,6 +1202,12 @@ export async function getStaffDashboardData(targetUserId?: string) {
             clientName: true,
             code: true,
             status: true,
+          },
+        },
+        folder: {
+          select: {
+            id: true,
+            name: true,
           },
         },
         revisions: {
@@ -1179,6 +1309,38 @@ export async function getStaffDashboardData(targetUserId?: string) {
           ],
         })
       : Promise.resolve([]),
+
+    // 9. Folders
+    prisma.taskFolder.findMany({
+      where: { userId },
+      include: {
+        project: {
+          select: {
+            id: true,
+            name: true,
+            clientName: true,
+            code: true,
+            status: true,
+          },
+        },
+        tasks: {
+          select: {
+            id: true,
+            title: true,
+            status: true,
+            priority: true,
+            taskOutputType: true,
+            estimatedHours: true,
+            dueDate: true,
+            timerActive: true,
+            currentRevisionRound: true,
+            createdAt: true,
+          },
+          orderBy: { createdAt: "desc" },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+    }),
   ]);
 
   return {
@@ -1188,6 +1350,7 @@ export async function getStaffDashboardData(targetUserId?: string) {
     delegatedTasks,
     reviewRequests,
     allTasks,
+    folders,
     staffMembers,
     projects,
     stats: {

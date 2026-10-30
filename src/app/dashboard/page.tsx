@@ -37,6 +37,7 @@ export default async function StaffDashboardPage({
         delegatedTasks={(data.delegatedTasks || []) as any}
         reviewRequests={(data.reviewRequests || []) as any}
         allTasks={((data as any).allTasks || []) as any}
+        folders={((data as any).folders || []) as any}
         staffMembers={data.staffMembers || []}
         projects={data.projects}
         stats={data.stats as any}
