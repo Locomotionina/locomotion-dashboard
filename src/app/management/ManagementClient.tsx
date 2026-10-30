@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useMemo, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -71,6 +71,7 @@ import {
   EyeOff,
   Upload,
   Camera,
+  RotateCcw,
 } from "lucide-react";
 import { formatDate } from "@/lib/utils";
 import { TaskExportModal } from "@/components/TaskExportModal";
@@ -115,6 +116,7 @@ export function ManagementClient({
   const [search, setSearch] = useState("");
   const [capacityFilter, setCapacityFilter] = useState("ALL");
   const [departmentFilter, setDepartmentFilter] = useState("ALL");
+  const [positionFilter, setPositionFilter] = useState("ALL");
   const [expandedStaffId, setExpandedStaffId] = useState<string | null>(null);
   const [isExportOpen, setIsExportOpen] = useState(false);
   const [selectedStaffReportId, setSelectedStaffReportId] = useState<string | null>(null);
@@ -359,6 +361,39 @@ export function ManagementClient({
     "N/A",
   ];
 
+  // Dynamic Role / Position options based on selected department or fetched staff
+  const availablePositions = useMemo(() => {
+    const positionsSet = new Set<string>();
+
+    if (departmentFilter !== "ALL") {
+      // 1. Defined positions in that department from schema
+      if (DEPARTMENT_POSITIONS[departmentFilter]) {
+        DEPARTMENT_POSITIONS[departmentFilter].forEach((p) => positionsSet.add(p));
+      }
+      // 2. Any additional positions present in staff belonging to that department
+      staffSummaries
+        .filter((s) => s.department === departmentFilter && s.position)
+        .forEach((s) => positionsSet.add(s.position));
+    } else {
+      // All departments: collect positions from all staff + defined positions
+      staffSummaries.forEach((s) => {
+        if (s.position) positionsSet.add(s.position);
+      });
+      Object.values(DEPARTMENT_POSITIONS).forEach((posList) => {
+        posList.forEach((p) => positionsSet.add(p));
+      });
+    }
+
+    return ["ALL", ...Array.from(positionsSet).sort()];
+  }, [departmentFilter, staffSummaries]);
+
+  // Reset positionFilter to "ALL" if selected position is not in the newly available positions
+  useEffect(() => {
+    if (positionFilter !== "ALL" && !availablePositions.includes(positionFilter)) {
+      setPositionFilter("ALL");
+    }
+  }, [departmentFilter, availablePositions, positionFilter]);
+
   const filteredStaff = staffSummaries.filter((staff) => {
     const matchesSearch =
       staff.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -372,7 +407,10 @@ export function ManagementClient({
     const matchesDepartment =
       departmentFilter === "ALL" || staff.department === departmentFilter;
 
-    return matchesSearch && matchesCapacity && matchesDepartment;
+    const matchesPosition =
+      positionFilter === "ALL" || staff.position.toLowerCase() === positionFilter.toLowerCase();
+
+    return matchesSearch && matchesCapacity && matchesDepartment && matchesPosition;
   });
 
   const getCapacityBadge = (status: "OVERLOADED" | "OPTIMAL" | "AVAILABLE", count: number) => {
@@ -757,7 +795,7 @@ export function ManagementClient({
       </div>
 
       {/* Filter and Search Bar */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-card/85 backdrop-blur-md border border-border/60 p-4 rounded-2xl shadow-sm">
+      <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4 bg-card/85 backdrop-blur-md border border-border/60 p-4 rounded-2xl shadow-sm">
         <div className="relative flex-1 max-w-sm">
           <Search className="absolute left-3.5 top-2.5 h-4 w-4 text-muted-foreground" />
           <Input
@@ -768,14 +806,14 @@ export function ManagementClient({
           />
         </div>
 
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3 sm:gap-4">
           {/* Department Filter */}
           <div className="flex items-center gap-2">
-            <span className="text-xs font-semibold text-muted-foreground">Department:</span>
+            <span className="text-xs font-semibold text-muted-foreground whitespace-nowrap">Department:</span>
             <select
               value={departmentFilter}
               onChange={(e) => setDepartmentFilter(e.target.value)}
-              className="h-9 rounded-xl border border-border/80 bg-background/60 px-3 text-xs font-medium text-foreground"
+              className="h-9 rounded-xl border border-border/80 bg-background/60 px-3 text-xs font-medium text-foreground cursor-pointer focus:outline-none focus:ring-1 focus:ring-ring"
             >
               {departments.map((dept) => (
                 <option key={dept} value={dept}>
@@ -785,13 +823,33 @@ export function ManagementClient({
             </select>
           </div>
 
+          {/* Role / Position Filter */}
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-semibold text-muted-foreground whitespace-nowrap">Role / Position:</span>
+            <select
+              value={positionFilter}
+              onChange={(e) => setPositionFilter(e.target.value)}
+              className="h-9 rounded-xl border border-border/80 bg-background/60 px-3 text-xs font-medium text-foreground max-w-[210px] truncate cursor-pointer focus:outline-none focus:ring-1 focus:ring-ring"
+              title="Filter by Specific Role or Position"
+            >
+              <option value="ALL">All Roles</option>
+              {availablePositions
+                .filter((pos) => pos !== "ALL")
+                .map((pos) => (
+                  <option key={pos} value={pos}>
+                    {pos}
+                  </option>
+                ))}
+            </select>
+          </div>
+
           {/* Capacity Status Filter */}
           <div className="flex items-center gap-2">
-            <span className="text-xs font-semibold text-muted-foreground">Capacity:</span>
+            <span className="text-xs font-semibold text-muted-foreground whitespace-nowrap">Capacity:</span>
             <select
               value={capacityFilter}
               onChange={(e) => setCapacityFilter(e.target.value)}
-              className="h-9 rounded-xl border border-border/80 bg-background/60 px-3 text-xs font-medium text-foreground"
+              className="h-9 rounded-xl border border-border/80 bg-background/60 px-3 text-xs font-medium text-foreground cursor-pointer focus:outline-none focus:ring-1 focus:ring-ring"
             >
               <option value="ALL">All Status</option>
               <option value="AVAILABLE">Available (0 - 1)</option>
@@ -799,18 +857,53 @@ export function ManagementClient({
               <option value="OVERLOADED">Overloaded (5+)</option>
             </select>
           </div>
+
+          {/* Reset Filters button if any filter is active */}
+          {(search || departmentFilter !== "ALL" || positionFilter !== "ALL" || capacityFilter !== "ALL") && (
+            <Button
+              onClick={() => {
+                setSearch("");
+                setDepartmentFilter("ALL");
+                setPositionFilter("ALL");
+                setCapacityFilter("ALL");
+              }}
+              size="sm"
+              variant="ghost"
+              className="h-9 px-2.5 rounded-xl text-xs text-muted-foreground hover:text-foreground gap-1.5"
+              title="Reset all filters"
+            >
+              <RotateCcw className="h-3.5 w-3.5" />
+              <span>Reset</span>
+            </Button>
+          )}
         </div>
       </div>
 
       {/* Staff Roster Cards */}
       <div className="space-y-4">
         {filteredStaff.length === 0 ? (
-          <div className="p-12 text-center border rounded-2xl bg-card/60">
+          <div className="p-12 text-center border rounded-2xl bg-card/60 space-y-2">
             <Users className="h-10 w-10 text-muted-foreground mx-auto mb-2 opacity-50" />
             <p className="text-sm font-semibold text-foreground">Tidak ada staf yang sesuai filter.</p>
-            <p className="text-xs text-muted-foreground mt-1">
-              Coba reset kata kunci pencarian atau ubah kriteria filter departemen.
+            <p className="text-xs text-muted-foreground">
+              Coba sesuaikan kata kunci pencarian, filter departemen, posisi/role, atau status kapasitas.
             </p>
+            <div className="pt-2">
+              <Button
+                onClick={() => {
+                  setSearch("");
+                  setDepartmentFilter("ALL");
+                  setPositionFilter("ALL");
+                  setCapacityFilter("ALL");
+                }}
+                size="sm"
+                variant="outline"
+                className="rounded-xl text-xs gap-1.5 font-semibold"
+              >
+                <RotateCcw className="h-3.5 w-3.5" />
+                <span>Reset Semua Filter</span>
+              </Button>
+            </div>
           </div>
         ) : (
           filteredStaff.map((staff) => {

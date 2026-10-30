@@ -11,6 +11,7 @@ import {
 import { getTierFromPosition } from "@/lib/departments";
 import { revalidatePath } from "next/cache";
 import { validateImageMagicBytes, isValidAvatarUrl } from "@/lib/security";
+import { createNotification } from "@/actions/notifications";
 
 export type UserRole = "ADMIN" | "MANAGEMENT" | "STAFF";
 
@@ -216,13 +217,11 @@ export async function registerAction(formData: FormData) {
     where: { role: "ADMIN" },
   });
   for (const a of admins) {
-    await prisma.notification.create({
-      data: {
-        userId: a.id,
-        title: "Pendaftaran Pengguna Baru",
-        message: `${name} (@${username}) mendaftar sebagai ${position} (${department}) dan membutuhkan persetujuan Anda.`,
-        link: "/admin/users",
-      },
+    await createNotification({
+      userId: a.id,
+      title: "Pendaftaran Pengguna Baru",
+      message: `${name} (@${username}) mendaftar sebagai ${position} (${department}) dan membutuhkan persetujuan Anda.`,
+      link: "/admin/users",
     });
   }
 
@@ -255,13 +254,11 @@ export async function approveUserAction(userId: string) {
     data: { isApproved: true },
   });
 
-  await prisma.notification.create({
-    data: {
-      userId: user.id,
-      title: "Akun Disetujui",
-      message: "Akun Anda telah disetujui oleh Admin (HRGA). Selamat datang di Locomotion Agency!",
-      link: "/dashboard",
-    },
+  await createNotification({
+    userId: user.id,
+    title: "Akun Disetujui",
+    message: "Akun Anda telah disetujui oleh Admin (HRGA). Selamat datang di Locomotion Agency!",
+    link: "/dashboard",
   });
 
   revalidatePath("/admin/users");
@@ -695,15 +692,13 @@ export async function rejectProfileUpdateAction(requestId: string, adminNote?: s
     },
   });
 
-  await prisma.notification.create({
-    data: {
-      userId: req.userId,
-      title: "Perubahan Profil Ditolak",
-      message: adminNote
-        ? `Permintaan perubahan profil Anda ditolak oleh Admin: ${adminNote}`
-        : "Permintaan perubahan profil Anda ditolak oleh Admin.",
-      link: "/profile",
-    },
+  await createNotification({
+    userId: req.userId,
+    title: "Perubahan Profil Ditolak",
+    message: adminNote
+      ? `Permintaan perubahan profil Anda ditolak oleh Admin: ${adminNote}`
+      : "Permintaan perubahan profil Anda ditolak oleh Admin.",
+    link: "/profile",
   });
 
   revalidatePath("/management");
@@ -808,13 +803,11 @@ export async function approvePasswordResetAction(requestId: string) {
     data: { status: "APPROVED" },
   });
 
-  await prisma.notification.create({
-    data: {
-      userId: req.userId,
-      title: "Reset Password Disetujui",
-      message: "Permintaan reset password Anda telah disetujui oleh Admin. Anda sekarang dapat login menggunakan kata sandi baru Anda.",
-      link: "/profile",
-    },
+  await createNotification({
+    userId: req.userId,
+    title: "Reset Password Disetujui",
+    message: "Permintaan reset password Anda telah disetujui oleh Admin. Anda sekarang dapat login menggunakan kata sandi baru Anda.",
+    link: "/profile",
   });
 
   revalidatePath("/management");
@@ -843,15 +836,13 @@ export async function rejectPasswordResetAction(requestId: string, adminNote?: s
     },
   });
 
-  await prisma.notification.create({
-    data: {
-      userId: req.userId,
-      title: "Reset Password Ditolak",
-      message: adminNote
-        ? `Permintaan reset password Anda ditolak oleh Admin: ${adminNote}`
-        : "Permintaan reset password Anda ditolak oleh Admin.",
-      link: "/profile",
-    },
+  await createNotification({
+    userId: req.userId,
+    title: "Reset Password Ditolak",
+    message: adminNote
+      ? `Permintaan reset password Anda ditolak oleh Admin: ${adminNote}`
+      : "Permintaan reset password Anda ditolak oleh Admin.",
+    link: "/profile",
   });
 
   revalidatePath("/management");
@@ -906,13 +897,11 @@ export async function adminUpdateStaffProfileAction(formData: FormData) {
     },
   });
 
-  await prisma.notification.create({
-    data: {
-      userId: updated.id,
-      title: "Profil Diperbarui oleh Project Manager",
-      message: "Data profil Anda telah diperbarui langsung oleh Project Manager.",
-      link: "/profile",
-    },
+  await createNotification({
+    userId: updated.id,
+    title: "Profil Diperbarui oleh Project Manager",
+    message: "Data profil Anda telah diperbarui langsung oleh Project Manager.",
+    link: "/profile",
   });
 
   revalidatePath("/management");
@@ -936,13 +925,11 @@ export async function adminResetStaffPasswordAction(targetUserId: string, newPas
     data: { password: hashedPassword },
   });
 
-  await prisma.notification.create({
-    data: {
-      userId: targetUserId,
-      title: "Password Direset oleh Project Manager",
-      message: "Kata sandi akun Anda telah direset langsung oleh Project Manager. Gunakan kata sandi baru untuk login.",
-      link: "/profile",
-    },
+  await createNotification({
+    userId: targetUserId,
+    title: "Password Direset oleh Project Manager",
+    message: "Kata sandi akun Anda telah direset langsung oleh Project Manager. Gunakan kata sandi baru untuk login.",
+    link: "/profile",
   });
 
   revalidatePath("/management");
@@ -978,16 +965,14 @@ export async function toggleAdminRoleAction(targetUserId: string) {
     data: { role: newRole },
   });
 
-  await prisma.notification.create({
-    data: {
-      userId: targetUserId,
-      title: newRole === "MANAGEMENT" ? "Hak Akses Admin Diberikan" : "Hak Akses Admin Dicabut",
-      message:
-        newRole === "MANAGEMENT"
-          ? "Anda telah ditunjuk sebagai Admin / Management oleh Project Manager."
-          : "Hak akses Admin Anda telah dicabut dan dikembalikan ke peran Staf.",
-      link: "/management",
-    },
+  await createNotification({
+    userId: targetUserId,
+    title: newRole === "MANAGEMENT" ? "Hak Akses Admin Diberikan" : "Hak Akses Admin Dicabut",
+    message:
+      newRole === "MANAGEMENT"
+        ? "Anda telah ditunjuk sebagai Admin / Management oleh Project Manager."
+        : "Hak akses Admin Anda telah dicabut dan dikembalikan ke peran Staf.",
+    link: "/management",
   });
 
   revalidatePath("/management");

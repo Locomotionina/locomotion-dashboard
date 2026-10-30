@@ -2,6 +2,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
+import { sendNotificationEmail } from "@/lib/mail";
 import { revalidatePath } from "next/cache";
 
 export type NotificationType =
@@ -32,7 +33,30 @@ export async function createNotification(params: CreateNotificationParams) {
         link: params.link,
         taskId: params.taskId,
       },
+      include: {
+        user: {
+          select: {
+            name: true,
+            email: true,
+          },
+        },
+      },
     });
+
+    // Kirim notifikasi email via Resend secara otomatis (non-blocking)
+    if (notification.user?.email) {
+      sendNotificationEmail({
+        to: notification.user.email,
+        userName: notification.user.name,
+        title: params.title,
+        message: params.message,
+        link: params.link,
+        type: params.type || "INFO",
+      }).catch((mailErr) => {
+        console.error("[Mail] Gagal mengirim notifikasi email:", mailErr);
+      });
+    }
+
     return { success: true, notification };
   } catch (err: any) {
     console.error("Failed to create notification:", err);
