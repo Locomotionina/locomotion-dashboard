@@ -13,6 +13,8 @@ export async function createTaskAction(formData: FormData) {
 
   const title = formData.get("title") as string;
   const description = formData.get("description") as string;
+  const taskOutputTypeRaw = (formData.get("taskOutputType") as string) || "";
+  const taskOutputType = taskOutputTypeRaw.trim() || null;
   const projectId = (formData.get("projectId") as string) || null;
   const priority = (formData.get("priority") as string) || "MEDIUM";
   const status = (formData.get("status") as string) || "To Do";
@@ -30,6 +32,7 @@ export async function createTaskAction(formData: FormData) {
     data: {
       title: title.trim(),
       description: description?.trim() || null,
+      taskOutputType,
       priority,
       status,
       dueDate: dueDateStr ? new Date(dueDateStr) : null,
@@ -787,6 +790,8 @@ export async function updateTaskAction(formData: FormData) {
     const taskId = formData.get("taskId") as string;
     const title = formData.get("title") as string;
     const description = formData.get("description") as string;
+    const taskOutputTypeRaw = formData.get("taskOutputType") as string | null;
+    const taskOutputType = taskOutputTypeRaw !== null ? taskOutputTypeRaw.trim() || null : undefined;
     const projectId = (formData.get("projectId") as string) || null;
     const priority = formData.get("priority") as string;
     const status = formData.get("status") as string;
@@ -815,6 +820,7 @@ export async function updateTaskAction(formData: FormData) {
       data: {
         title: title.trim(),
         description: description?.trim() || null,
+        ...(taskOutputType !== undefined ? { taskOutputType } : {}),
         projectId: projectId === "NONE" || !projectId ? null : projectId,
         priority: priority || task.priority,
         status: status || task.status,

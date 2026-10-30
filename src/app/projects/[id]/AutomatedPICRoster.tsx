@@ -40,6 +40,7 @@ interface PICTask {
   id: string;
   title: string;
   description?: string | null;
+  taskOutputType?: string | null;
   estimatedHours?: number | null;
   status: string;
   priority: string;
@@ -279,7 +280,12 @@ export function AutomatedPICRoster({ pics }: { pics: PICMember[] }) {
                                   <span className="text-foreground font-medium text-xs break-words line-clamp-1 flex-1">
                                     {task.title}
                                   </span>
-                                  <div className="shrink-0">
+                                  <div className="shrink-0 flex items-center gap-1">
+                                    {task.taskOutputType && (
+                                      <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-700 dark:text-sky-300 border border-sky-500/20">
+                                        {task.taskOutputType}
+                                      </span>
+                                    )}
                                     {getPriorityBadge(task.priority)}
                                   </div>
                                 </div>
@@ -486,6 +492,11 @@ export function AutomatedPICRoster({ pics }: { pics: PICMember[] }) {
                                   <div className="flex items-center gap-2 flex-wrap">
                                     {getStatusBadge(task.status)}
                                     {getPriorityBadge(task.priority)}
+                                    {task.taskOutputType && (
+                                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-sky-500/10 text-sky-700 dark:text-sky-300 border border-sky-500/20">
+                                        {task.taskOutputType}
+                                      </span>
+                                    )}
 
                                     {/* Real-time Dynamic In Review Badge Label */}
                                     {isInReview && (

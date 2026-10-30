@@ -75,6 +75,7 @@ model Task {
   id                   String         @id @default(cuid())
   title                String
   description          String?
+  taskOutputType       String?
   status               String         @default("To Do") // "To Do", "On Progress", "In Review", "Revision", "Done"
   priority             String         @default("MEDIUM")  // "LOW", "MEDIUM", "HIGH", "URGENT"
   dueDate              DateTime?

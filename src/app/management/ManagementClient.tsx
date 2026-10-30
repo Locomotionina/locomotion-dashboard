@@ -1078,18 +1078,25 @@ export function ManagementClient({
                                 </span>
                               )}
 
-                              <Badge
-                                variant={
-                                  task.priority === "URGENT"
-                                    ? "destructive"
-                                    : task.priority === "HIGH"
-                                    ? "warning"
-                                    : "secondary"
-                                }
-                                className="text-[9px]"
-                              >
-                                {task.priority}
-                              </Badge>
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                {task.taskOutputType && (
+                                  <Badge variant="outline" className="text-[9px] bg-sky-500/10 text-sky-700 dark:text-sky-300 border-sky-500/20">
+                                    {task.taskOutputType}
+                                  </Badge>
+                                )}
+                                <Badge
+                                  variant={
+                                    task.priority === "URGENT"
+                                      ? "destructive"
+                                      : task.priority === "HIGH"
+                                      ? "warning"
+                                      : "secondary"
+                                  }
+                                  className="text-[9px]"
+                                >
+                                  {task.priority}
+                                </Badge>
+                              </div>
                             </div>
 
                             <p className="font-semibold text-foreground">

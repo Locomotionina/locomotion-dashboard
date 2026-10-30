@@ -16,7 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { PlusCircle, Loader2, Sparkles, CheckCircle2, AlertCircle } from "lucide-react";
+import { PlusCircle, Loader2, Sparkles, CheckCircle2, AlertCircle, Layers } from "lucide-react";
 
 interface AddMyTaskDialogProps {
   projectId: string;
@@ -35,6 +35,8 @@ export function AddMyTaskDialog({
 }: AddMyTaskDialogProps) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
+  const [taskOutputTypeOption, setTaskOutputTypeOption] = useState<string>("Thumbnail");
+  const [customOutputType, setCustomOutputType] = useState<string>("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -54,12 +56,20 @@ export function AddMyTaskDialog({
     } else {
       setLoading(false);
       setOpen(false);
+      setTaskOutputTypeOption("Thumbnail");
+      setCustomOutputType("");
       router.refresh();
     }
   };
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={(val) => {
+      setOpen(val);
+      if (!val) {
+        setTaskOutputTypeOption("Thumbnail");
+        setCustomOutputType("");
+      }
+    }}>
       <DialogTrigger asChild>
         <Button className="gap-2 bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 text-white shadow-sm border-0">
           <PlusCircle className="h-4 w-4" />
@@ -105,6 +115,50 @@ export function AddMyTaskDialog({
                 placeholder="e.g. 3D Model Optimization, Hero Copy Deck, Wireframes"
                 required
                 autoFocus
+              />
+            </div>
+
+            {/* Tipe Output Task Field with Dynamic Custom Option */}
+            <div className="space-y-1.5">
+              <Label htmlFor="projectTaskOutputTypeSelect" className="text-foreground font-semibold flex items-center gap-1.5">
+                <Layers className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
+                <span>TIPE OUTPUT TASK</span>
+              </Label>
+              <select
+                id="projectTaskOutputTypeSelect"
+                value={taskOutputTypeOption}
+                onChange={(e) => setTaskOutputTypeOption(e.target.value)}
+                className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring text-foreground font-medium cursor-pointer"
+              >
+                <option value="Thumbnail">Thumbnail</option>
+                <option value="Carousel">Carousel</option>
+                <option value="Single Post">Single Post</option>
+                <option value="Story">Story</option>
+                <option value="Custom">Custom</option>
+              </select>
+
+              {taskOutputTypeOption === "Custom" && (
+                <div className="pt-1.5 space-y-1 animate-in fade-in duration-200">
+                  <Input
+                    id="projectCustomTaskOutputType"
+                    name="projectCustomTaskOutputType"
+                    value={customOutputType}
+                    onChange={(e) => setCustomOutputType(e.target.value)}
+                    placeholder="Ketik tipe output custom (misal: Reels, Banner, Feed)..."
+                    required
+                    autoFocus
+                    className="rounded-md border-blue-500/50 bg-blue-500/5 focus-visible:ring-blue-500"
+                  />
+                  <p className="text-[11px] text-muted-foreground">
+                    Ketik spesifikasi tipe output custom yang Anda inginkan.
+                  </p>
+                </div>
+              )}
+
+              <input
+                type="hidden"
+                name="taskOutputType"
+                value={taskOutputTypeOption === "Custom" ? (customOutputType.trim() || "Custom") : taskOutputTypeOption}
               />
             </div>
 

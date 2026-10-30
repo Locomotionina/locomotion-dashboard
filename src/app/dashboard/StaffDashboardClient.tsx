@@ -93,6 +93,7 @@ interface TaskItem {
   id: string;
   title: string;
   description: string | null;
+  taskOutputType?: string | null;
   status: string;
   priority: string;
   dueDate: Date | null;
@@ -138,6 +139,7 @@ export interface ReviewRequestItem {
   id: string;
   title: string;
   description: string | null;
+  taskOutputType?: string | null;
   status: string;
   priority: string;
   dueDate: Date | null;
@@ -188,6 +190,7 @@ interface DelegatedTaskItem {
   id: string;
   title: string;
   description: string | null;
+  taskOutputType?: string | null;
   status: string;
   priority: string;
   dueDate: Date | null;
@@ -344,7 +347,12 @@ export function StaffDashboardClient({
     Boolean(user.position && user.position.toLowerCase().includes("pm"));
 
   const [createOpen, setCreateOpen] = useState(false);
+  const [taskOutputTypeOption, setTaskOutputTypeOption] = useState<string>("Thumbnail");
+  const [customOutputType, setCustomOutputType] = useState<string>("");
+
   const [editTask, setEditTask] = useState<TaskItem | DelegatedTaskItem | null>(null);
+  const [editTaskOutputTypeOption, setEditTaskOutputTypeOption] = useState<string>("Thumbnail");
+  const [editCustomOutputType, setEditCustomOutputType] = useState<string>("");
   const [loading, setLoading] = useState(false);
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState("ALL");
@@ -437,6 +445,19 @@ export function StaffDashboardClient({
       }
     }
   }, [activeTasks, reviewRequests, delegatedTasks, allTasks, archivedTasks, isAdminOrPM]);
+
+  useEffect(() => {
+    if (editTask) {
+      const outType = (editTask as any).taskOutputType || "Thumbnail";
+      if (["Thumbnail", "Carousel", "Single Post", "Story"].includes(outType)) {
+        setEditTaskOutputTypeOption(outType);
+        setEditCustomOutputType("");
+      } else {
+        setEditTaskOutputTypeOption("Custom");
+        setEditCustomOutputType(outType);
+      }
+    }
+  }, [editTask]);
   
   // Revision input state: { [taskId]: string }
   const [revisionInputs, setRevisionInputs] = useState<Record<string, string>>({});
@@ -468,6 +489,8 @@ export function StaffDashboardClient({
     setLoading(false);
     if (res.success) {
       setCreateOpen(false);
+      setTaskOutputTypeOption("Thumbnail");
+      setCustomOutputType("");
       router.refresh();
     }
   };
@@ -702,6 +725,7 @@ export function StaffDashboardClient({
 
     const headers = [
       "Judul Task",
+      "Tipe Output",
       "Kode Project",
       "Nama Project",
       "Klien",
@@ -735,6 +759,7 @@ export function StaffDashboardClient({
 
       return [
         escapeCsv(t.title),
+        escapeCsv(t.taskOutputType || "-"),
         escapeCsv(t.project?.code || "-"),
         escapeCsv(t.project?.name || "-"),
         escapeCsv(t.project?.clientName || "-"),
@@ -1034,7 +1059,13 @@ export function StaffDashboardClient({
             <span>Export Report & Ringkasan</span>
           </Button>
 
-          <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+          <Dialog open={createOpen} onOpenChange={(open) => {
+            setCreateOpen(open);
+            if (!open) {
+              setTaskOutputTypeOption("Thumbnail");
+              setCustomOutputType("");
+            }
+          }}>
             <DialogTrigger asChild>
               <Button className="gap-2 rounded-xl bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 text-white shadow-sm hover:scale-[1.02] active:scale-[0.98] transition-all duration-200 border-0 h-10 px-4">
                 <Plus className="h-4 w-4" />
@@ -1060,6 +1091,50 @@ export function StaffDashboardClient({
                     required
                     autoFocus
                     className="rounded-xl"
+                  />
+                </div>
+
+                {/* Tipe Output Task Field with Dynamic Custom Option */}
+                <div className="space-y-1.5">
+                  <Label htmlFor="taskOutputTypeSelect" className="text-foreground font-semibold flex items-center gap-1.5">
+                    <Layers className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
+                    <span>TIPE OUTPUT TASK</span>
+                  </Label>
+                  <select
+                    id="taskOutputTypeSelect"
+                    value={taskOutputTypeOption}
+                    onChange={(e) => setTaskOutputTypeOption(e.target.value)}
+                    className="flex h-10 w-full rounded-xl border border-input bg-card px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring text-foreground font-medium cursor-pointer"
+                  >
+                    <option value="Thumbnail">Thumbnail</option>
+                    <option value="Carousel">Carousel</option>
+                    <option value="Single Post">Single Post</option>
+                    <option value="Story">Story</option>
+                    <option value="Custom">Custom</option>
+                  </select>
+
+                  {taskOutputTypeOption === "Custom" && (
+                    <div className="pt-1.5 space-y-1 animate-in fade-in duration-200">
+                      <Input
+                        id="customTaskOutputType"
+                        name="customTaskOutputType"
+                        value={customOutputType}
+                        onChange={(e) => setCustomOutputType(e.target.value)}
+                        placeholder="Ketik tipe output custom (misal: Reels, Banner, Feed)..."
+                        required
+                        autoFocus
+                        className="rounded-xl border-blue-500/50 bg-blue-500/5 focus-visible:ring-blue-500"
+                      />
+                      <p className="text-[11px] text-muted-foreground">
+                        Ketik spesifikasi tipe output custom yang Anda inginkan.
+                      </p>
+                    </div>
+                  )}
+
+                  <input
+                    type="hidden"
+                    name="taskOutputType"
+                    value={taskOutputTypeOption === "Custom" ? (customOutputType.trim() || "Custom") : taskOutputTypeOption}
                   />
                 </div>
 
@@ -1600,16 +1675,35 @@ export function StaffDashboardClient({
                             </span>
                           )}
 
-                          <div className="flex items-center gap-1.5">
+                          <div className="flex items-center gap-1.5 flex-wrap">
                             {getStatusBadge(task.status, task.currentRevisionRound)}
                             {getPriorityBadge(task.priority)}
+                            {task.taskOutputType && (
+                              <span
+                                className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-700 dark:text-blue-300 border border-blue-500/25 shrink-0"
+                                title={`Tipe Output: ${task.taskOutputType}`}
+                              >
+                                <Layers className="h-3 w-3 text-blue-600 dark:text-blue-400 shrink-0" />
+                                <span>{task.taskOutputType}</span>
+                              </span>
+                            )}
                           </div>
                         </div>
 
                         {/* Title: Big, bold & focused */}
-                        <h3 className="text-base font-bold tracking-tight text-foreground leading-snug">
-                          {task.title}
-                        </h3>
+                        <div className="space-y-1">
+                          <h3 className="text-base font-bold tracking-tight text-foreground leading-snug">
+                            {task.title}
+                          </h3>
+                          {task.taskOutputType && (
+                            <div className="flex items-center gap-1.5">
+                              <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-md bg-blue-500/10 text-blue-700 dark:text-blue-300 border border-blue-500/20">
+                                <Layers className="h-3 w-3 text-blue-500 shrink-0" />
+                                <span>Output: {task.taskOutputType}</span>
+                              </span>
+                            </div>
+                          )}
+                        </div>
 
                         {/* Delegated from another staff indicator */}
                         {task.createdBy && task.createdBy.id !== user.id && (
@@ -2056,16 +2150,35 @@ export function StaffDashboardClient({
                             </span>
                           )}
 
-                          <div className="flex items-center gap-1.5">
+                          <div className="flex items-center gap-1.5 flex-wrap">
                             {getStatusBadge(task.status, task.currentRevisionRound)}
                             {getPriorityBadge(task.priority)}
+                            {task.taskOutputType && (
+                              <span
+                                className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-700 dark:text-blue-300 border border-blue-500/25 shrink-0"
+                                title={`Tipe Output: ${task.taskOutputType}`}
+                              >
+                                <Layers className="h-3 w-3 text-blue-600 dark:text-blue-400 shrink-0" />
+                                <span>{task.taskOutputType}</span>
+                              </span>
+                            )}
                           </div>
                         </div>
 
                         {/* Title: Big, bold & focused */}
-                        <h3 className="text-base font-bold tracking-tight text-foreground leading-snug">
-                          {task.title}
-                        </h3>
+                        <div className="space-y-1">
+                          <h3 className="text-base font-bold tracking-tight text-foreground leading-snug">
+                            {task.title}
+                          </h3>
+                          {task.taskOutputType && (
+                            <div className="flex items-center gap-1.5">
+                              <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-md bg-blue-500/10 text-blue-700 dark:text-blue-300 border border-blue-500/20">
+                                <Layers className="h-3 w-3 text-blue-500 shrink-0" />
+                                <span>Output: {task.taskOutputType}</span>
+                              </span>
+                            </div>
+                          )}
+                        </div>
 
                         {/* Specialist / Worker Profile Badge */}
                         <div className="rounded-xl border border-border/60 bg-secondary/50 p-2 flex items-center justify-between gap-2">
@@ -2403,16 +2516,35 @@ export function StaffDashboardClient({
                             </span>
                           )}
 
-                          <div className="flex items-center gap-1.5">
+                          <div className="flex items-center gap-1.5 flex-wrap">
                             {getStatusBadge(task.status, task.currentRevisionRound)}
                             {getPriorityBadge(task.priority)}
+                            {task.taskOutputType && (
+                              <span
+                                className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-700 dark:text-blue-300 border border-blue-500/25 shrink-0"
+                                title={`Tipe Output: ${task.taskOutputType}`}
+                              >
+                                <Layers className="h-3 w-3 text-blue-600 dark:text-blue-400 shrink-0" />
+                                <span>{task.taskOutputType}</span>
+                              </span>
+                            )}
                           </div>
                         </div>
 
                         {/* Title: Big, bold & focused */}
-                        <h3 className="text-base font-bold tracking-tight text-foreground leading-snug">
-                          {task.title}
-                        </h3>
+                        <div className="space-y-1">
+                          <h3 className="text-base font-bold tracking-tight text-foreground leading-snug">
+                            {task.title}
+                          </h3>
+                          {task.taskOutputType && (
+                            <div className="flex items-center gap-1.5">
+                              <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-md bg-blue-500/10 text-blue-700 dark:text-blue-300 border border-blue-500/20">
+                                <Layers className="h-3 w-3 text-blue-500 shrink-0" />
+                                <span>Output: {task.taskOutputType}</span>
+                              </span>
+                            </div>
+                          )}
+                        </div>
 
                         {/* Assigned Specialist PIC Badge */}
                         <div className="rounded-xl border border-border/60 bg-secondary/50 p-2 flex items-center justify-between gap-2">
@@ -2771,16 +2903,35 @@ export function StaffDashboardClient({
                               </span>
                             )}
 
-                            <div className="flex items-center gap-1.5">
+                            <div className="flex items-center gap-1.5 flex-wrap">
                               {getStatusBadge(task.status, task.currentRevisionRound)}
                               {getPriorityBadge(task.priority)}
+                              {task.taskOutputType && (
+                                <span
+                                  className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-700 dark:text-blue-300 border border-blue-500/25 shrink-0"
+                                  title={`Tipe Output: ${task.taskOutputType}`}
+                                >
+                                  <Layers className="h-3 w-3 text-blue-600 dark:text-blue-400 shrink-0" />
+                                  <span>{task.taskOutputType}</span>
+                                </span>
+                              )}
                             </div>
                           </div>
 
                           {/* Task Title */}
-                          <h3 className="text-base font-bold tracking-tight text-foreground leading-snug">
-                            {task.title}
-                          </h3>
+                          <div className="space-y-1">
+                            <h3 className="text-base font-bold tracking-tight text-foreground leading-snug">
+                              {task.title}
+                            </h3>
+                            {task.taskOutputType && (
+                              <div className="flex items-center gap-1.5">
+                                <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-md bg-blue-500/10 text-blue-700 dark:text-blue-300 border border-blue-500/20">
+                                  <Layers className="h-3 w-3 text-blue-500 shrink-0" />
+                                  <span>Output: {task.taskOutputType}</span>
+                                </span>
+                              </div>
+                            )}
+                          </div>
 
                           {/* Penerima (PIC) & Pengirim Task Context Box */}
                           <div className="grid grid-cols-2 gap-2 p-2.5 rounded-xl border border-border/60 bg-secondary/30 text-xs">
@@ -3357,6 +3508,11 @@ export function StaffDashboardClient({
                             <div className="flex items-center gap-1.5 flex-wrap">
                               {getStatusBadge(task.status, (task as any).currentRevisionRound)}
                               {getPriorityBadge(task.priority)}
+                              {(task as any).taskOutputType && (
+                                <span className="text-[9px] font-semibold px-1.5 py-0.2 rounded bg-sky-500/10 text-sky-700 dark:text-sky-300 border border-sky-500/20">
+                                  {(task as any).taskOutputType}
+                                </span>
+                              )}
                               {task.project && (
                                 <span className="text-[10px] text-muted-foreground font-medium truncate max-w-[130px]">
                                   {task.project.code}
@@ -3556,6 +3712,50 @@ export function StaffDashboardClient({
                     defaultValue={editTask.title}
                     required
                     className="rounded-xl"
+                  />
+                </div>
+
+                {/* Tipe Output Task Field with Dynamic Custom Option */}
+                <div className="space-y-1.5">
+                  <Label htmlFor="editTaskOutputTypeSelect" className="text-foreground font-semibold flex items-center gap-1.5">
+                    <Layers className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
+                    <span>TIPE OUTPUT TASK</span>
+                  </Label>
+                  <select
+                    id="editTaskOutputTypeSelect"
+                    value={editTaskOutputTypeOption}
+                    onChange={(e) => setEditTaskOutputTypeOption(e.target.value)}
+                    className="flex h-10 w-full rounded-xl border border-input bg-card px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring text-foreground font-medium cursor-pointer"
+                  >
+                    <option value="Thumbnail">Thumbnail</option>
+                    <option value="Carousel">Carousel</option>
+                    <option value="Single Post">Single Post</option>
+                    <option value="Story">Story</option>
+                    <option value="Custom">Custom</option>
+                  </select>
+
+                  {editTaskOutputTypeOption === "Custom" && (
+                    <div className="pt-1.5 space-y-1 animate-in fade-in duration-200">
+                      <Input
+                        id="editCustomTaskOutputType"
+                        name="editCustomTaskOutputType"
+                        value={editCustomOutputType}
+                        onChange={(e) => setEditCustomOutputType(e.target.value)}
+                        placeholder="Ketik tipe output custom (misal: Reels, Banner, Feed)..."
+                        required
+                        autoFocus
+                        className="rounded-xl border-blue-500/50 bg-blue-500/5 focus-visible:ring-blue-500"
+                      />
+                      <p className="text-[11px] text-muted-foreground">
+                        Ketik spesifikasi tipe output custom yang Anda inginkan.
+                      </p>
+                    </div>
+                  )}
+
+                  <input
+                    type="hidden"
+                    name="taskOutputType"
+                    value={editTaskOutputTypeOption === "Custom" ? (editCustomOutputType.trim() || "Custom") : editTaskOutputTypeOption}
                   />
                 </div>
 

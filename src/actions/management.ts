@@ -24,6 +24,7 @@ export interface StaffCapacitySummary {
   tasks: {
     id: string;
     title: string;
+    taskOutputType?: string | null;
     status: string;
     priority: string;
     dueDate: Date | null;
@@ -211,6 +212,7 @@ export async function getManagementOverviewData() {
       tasks: activeTasks.map((t) => ({
         id: t.id,
         title: t.title,
+        taskOutputType: t.taskOutputType,
         status: t.status,
         priority: t.priority,
         dueDate: t.dueDate,
