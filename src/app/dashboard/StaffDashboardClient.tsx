@@ -596,6 +596,21 @@ export function StaffDashboardClient({
   const handleStartTimer = async (taskId: string) => {
     setActionLoadingId(taskId);
     try {
+      try {
+        const key = `loco_timer_sessions_${taskId}`;
+        const raw = localStorage.getItem(key);
+        const sessions = raw ? JSON.parse(raw) : [];
+        sessions.push({
+          id: `${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+          startedAt: new Date().toISOString(),
+          stoppedAt: null,
+          seconds: 0,
+        });
+        localStorage.setItem(key, JSON.stringify(sessions));
+      } catch {
+        // ignore storage error
+      }
+
       const res = await startTaskTimerAction(taskId);
       if (res && !res.success) {
         alert(res.error || "Gagal memulai task.");
@@ -613,6 +628,25 @@ export function StaffDashboardClient({
   const handlePauseTimer = async (taskId: string) => {
     setActionLoadingId(taskId);
     try {
+      try {
+        const key = `loco_timer_sessions_${taskId}`;
+        const raw = localStorage.getItem(key);
+        if (raw) {
+          const sessions = JSON.parse(raw);
+          const activeSession = sessions.find((s: any) => !s.stoppedAt);
+          if (activeSession) {
+            activeSession.stoppedAt = new Date().toISOString();
+            activeSession.seconds = Math.max(
+              0,
+              Math.floor((Date.now() - new Date(activeSession.startedAt).getTime()) / 1000)
+            );
+            localStorage.setItem(key, JSON.stringify(sessions));
+          }
+        }
+      } catch {
+        // ignore storage error
+      }
+
       const res = await pauseTaskTimerAction(taskId);
       if (res && !res.success) {
         alert(res.error || "Gagal menjeda timer.");
@@ -1568,66 +1602,77 @@ export function StaffDashboardClient({
 
       {/* Task Management Tabs: Active Tasks vs Review Requests vs Deliver by Me vs Archive */}
       <Tabs id="task-board" value={activeTab} onValueChange={setActiveTab} className="space-y-6 scroll-mt-20">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-border/60 pb-3">
-          <TabsList className="h-11 rounded-xl bg-secondary/60 p-1 flex-wrap">
-            {/* Tab 1: My Active Tasks */}
-            <TabsTrigger value="active" className="gap-2 rounded-lg data-[state=active]:bg-card data-[state=active]:shadow-sm">
-              <Layers className="h-4 w-4" />
-              <span>Active Tasks</span>
-              <span className="ml-1 rounded-full bg-blue-500/15 px-2 py-0.5 text-[10px] font-bold text-blue-600 dark:text-blue-300">
-                {stats.activeCount}
-              </span>
-            </TabsTrigger>
-
-            {/* Tab 2: Review Requests (Target User Preview Hub) */}
-            <TabsTrigger
-              value="reviews"
-              className="gap-2 rounded-lg data-[state=active]:bg-card data-[state=active]:shadow-sm"
-            >
-              <Eye className="h-3.5 w-3.5 text-purple-600 dark:text-purple-400" />
-              <span>Review Requests</span>
-              <span
-                className={`ml-1 rounded-full px-2 py-0.5 text-[10px] font-bold ${
-                  (reviewRequests || []).filter((t) => t.status === "In Review").length > 0
-                    ? "bg-purple-500/20 text-purple-700 dark:text-purple-300 font-extrabold ring-1 ring-purple-500/30"
-                    : "bg-secondary text-muted-foreground"
-                }`}
-              >
-                {(reviewRequests || []).length}
-              </span>
-            </TabsTrigger>
-
-            {/* Tab 3: Deliver by Me (Delegated Tasks) */}
-            <TabsTrigger value="delivered" className="gap-2 rounded-lg data-[state=active]:bg-card data-[state=active]:shadow-sm">
-              <Send className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
-              <span>Deliver by Me</span>
-              <span className="ml-1 rounded-full bg-blue-500/15 px-2 py-0.5 text-[10px] font-bold text-blue-700 dark:text-blue-300">
-                {delegatedTasks.length}
-              </span>
-            </TabsTrigger>
-
-            {/* Tab 3: All Tasks (Khusus Admin / Project Manager) */}
-            {isAdminOrPM && (
+        {/* Top Navigation & Filter Bar: Clean Layout with Strict No-Overlap Rule */}
+        <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-3.5 sm:gap-4 border-b border-border/60 pb-3.5">
+          {/* Tabs Section Container */}
+          <div className="min-w-0 flex-1">
+            <TabsList className="h-auto min-h-[44px] w-full sm:w-auto inline-flex flex-wrap items-center gap-1.5 rounded-2xl bg-secondary/60 p-1.5 shadow-2xs">
+              {/* Tab 1: My Active Tasks */}
               <TabsTrigger
-                value="all-tasks"
-                className="gap-2 rounded-lg data-[state=active]:bg-card data-[state=active]:shadow-sm"
+                value="active"
+                className="h-9 px-3.5 text-xs font-semibold gap-2 rounded-xl transition-all shrink-0 whitespace-nowrap data-[state=active]:bg-card data-[state=active]:shadow-sm data-[state=active]:text-foreground"
               >
-                <Briefcase className="h-4 w-4 text-blue-600 dark:text-blue-400" />
-                <span>All Tasks</span>
-                <span className="ml-1 rounded-full bg-blue-500/15 px-2 py-0.5 text-[10px] font-bold text-blue-700 dark:text-blue-300">
-                  {allTasks.length}
+                <Layers className="h-4 w-4" />
+                <span>Active Tasks</span>
+                <span className="ml-1 rounded-full bg-blue-500/15 px-2 py-0.5 text-[10px] font-bold text-blue-600 dark:text-blue-300 shrink-0">
+                  {stats.activeCount}
                 </span>
               </TabsTrigger>
-            )}
-          </TabsList>
 
-          <div className="flex flex-wrap items-center gap-2 text-xs">
+              {/* Tab 2: Review Requests (Target User Preview Hub) */}
+              <TabsTrigger
+                value="reviews"
+                className="h-9 px-3.5 text-xs font-semibold gap-2 rounded-xl transition-all shrink-0 whitespace-nowrap data-[state=active]:bg-card data-[state=active]:shadow-sm data-[state=active]:text-foreground"
+              >
+                <Eye className="h-3.5 w-3.5 text-purple-600 dark:text-purple-400" />
+                <span>Review Requests</span>
+                <span
+                  className={`ml-1 rounded-full px-2 py-0.5 text-[10px] font-bold shrink-0 ${
+                    (reviewRequests || []).filter((t) => t.status === "In Review").length > 0
+                      ? "bg-purple-500/20 text-purple-700 dark:text-purple-300 font-extrabold ring-1 ring-purple-500/30"
+                      : "bg-secondary text-muted-foreground"
+                  }`}
+                >
+                  {(reviewRequests || []).length}
+                </span>
+              </TabsTrigger>
+
+              {/* Tab 3: Deliver by Me (Delegated Tasks) */}
+              <TabsTrigger
+                value="delivered"
+                className="h-9 px-3.5 text-xs font-semibold gap-2 rounded-xl transition-all shrink-0 whitespace-nowrap data-[state=active]:bg-card data-[state=active]:shadow-sm data-[state=active]:text-foreground"
+              >
+                <Send className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
+                <span>Deliver by Me</span>
+                <span className="ml-1 rounded-full bg-blue-500/15 px-2 py-0.5 text-[10px] font-bold text-blue-700 dark:text-blue-300 shrink-0">
+                  {delegatedTasks.length}
+                </span>
+              </TabsTrigger>
+
+              {/* Tab 4: All Tasks (Khusus Admin / Project Manager) */}
+              {isAdminOrPM && (
+                <TabsTrigger
+                  value="all-tasks"
+                  className="h-9 px-3.5 text-xs font-semibold gap-2 rounded-xl transition-all shrink-0 whitespace-nowrap data-[state=active]:bg-card data-[state=active]:shadow-sm data-[state=active]:text-foreground"
+                >
+                  <Briefcase className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                  <span>All Tasks</span>
+                  <span className="ml-1 rounded-full bg-blue-500/15 px-2 py-0.5 text-[10px] font-bold text-blue-700 dark:text-blue-300 shrink-0">
+                    {allTasks.length}
+                  </span>
+                </TabsTrigger>
+              )}
+            </TabsList>
+          </div>
+
+          {/* Filter Dropdowns Container - Distinct, responsive, and wraps gracefully */}
+          <div className="flex flex-wrap items-center gap-2.5 sm:gap-3 text-xs shrink-0 min-w-0">
             {/* Status Dropdown Filter */}
             <div
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs shadow-sm transition-all ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs shadow-2xs transition-all shrink-0 ${
                 statusFilter !== "ALL"
                   ? "border-blue-500/60 bg-blue-500/10 text-blue-700 dark:text-blue-300 font-bold"
-                  : "border-border/60 bg-card/90 hover:bg-card text-foreground font-semibold hover:border-blue-500/40"
+                  : "border-border/70 bg-card/90 hover:bg-card text-foreground font-semibold hover:border-blue-500/40"
               }`}
             >
               <Filter className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400 shrink-0" />
@@ -1651,7 +1696,7 @@ export function StaffDashboardClient({
             </div>
 
             {/* Custom Theme-Aware Date Calendar Picker */}
-            <div className="relative" ref={datePickerRef}>
+            <div className="relative shrink-0" ref={datePickerRef}>
               <button
                 type="button"
                 onClick={() => {
@@ -1661,10 +1706,10 @@ export function StaffDashboardClient({
                   }
                   setIsDatePickerOpen(!isDatePickerOpen);
                 }}
-                className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs shadow-sm transition-all ${
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs shadow-2xs transition-all shrink-0 ${
                   selectedDateFilter
                     ? "border-blue-500/60 bg-blue-500/10 text-blue-700 dark:text-blue-300 font-bold"
-                    : "border-border/60 bg-card/90 hover:bg-card text-foreground font-semibold hover:border-blue-500/40"
+                    : "border-border/70 bg-card/90 hover:bg-card text-foreground font-semibold hover:border-blue-500/40"
                 }`}
                 title="Filter task berdasarkan kalender"
               >
@@ -1688,7 +1733,7 @@ export function StaffDashboardClient({
 
               {/* Custom Theme-Aware Calendar Popover */}
               {isDatePickerOpen && (
-                <div className="absolute right-0 sm:right-auto sm:left-0 top-full mt-2 w-72 sm:w-80 rounded-2xl border border-border/70 bg-card/95 backdrop-blur-md p-4 shadow-2xl z-50 animate-fade-up">
+                <div className="absolute right-0 top-full mt-2 w-72 sm:w-80 rounded-2xl border border-border/70 bg-card/95 backdrop-blur-md p-4 shadow-2xl z-50 animate-fade-up">
                   {/* Month Navigation Header */}
                   <div className="flex items-center justify-between pb-3 border-b border-border/40">
                     <Button
@@ -1825,7 +1870,7 @@ export function StaffDashboardClient({
             </div>
 
             {/* Sort Filter Dropdown */}
-            <div className="flex items-center gap-1.5 bg-card/90 px-2.5 py-1.5 rounded-xl border border-border/60 text-xs shadow-sm hover:border-blue-500/40 transition-colors">
+            <div className="flex items-center gap-1.5 bg-card/90 px-3 py-1.5 rounded-xl border border-border/70 text-xs shadow-2xs hover:border-blue-500/40 transition-colors shrink-0">
               <ArrowUpDown className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400 shrink-0" />
               <span className="text-muted-foreground text-[11px] font-medium hidden sm:inline">Urutan:</span>
               <select
