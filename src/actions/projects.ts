@@ -153,6 +153,7 @@ export async function getProjectById(id: string) {
         id: task.id,
         title: task.title,
         description: task.description,
+        taskOutputType: task.taskOutputType,
         estimatedHours: task.estimatedHours,
         status: task.status,
         priority: task.priority,

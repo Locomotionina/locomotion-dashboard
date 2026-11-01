@@ -8,17 +8,10 @@ import { AutomatedPICRoster } from "./AutomatedPICRoster";
 import { ProjectDescriptionsSection } from "./ProjectDescriptionsSection";
 import { ProjectHeroHeader } from "./ProjectHeroHeader";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import {
   ChevronLeft,
   Calendar,
-  Layers,
-  Target,
-  FileText,
-  Sparkles,
-  CheckCircle2,
-  Clock,
 } from "lucide-react";
 import { formatDate, formatRelativeDays } from "@/lib/utils";
 import { canManageDeliverables } from "@/lib/deliverables";
@@ -122,49 +115,33 @@ export default async function ProjectDetailPage({
         </div>
       </div>
 
-      {/* Main Content Layout */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Left Column: Brief, Goals, Scope, Centralized URLs Hub */}
-        <div className="lg:col-span-2 space-y-6">
-          {/* Project Descriptions Section (Client Brief, Goals, Scope) with Role-Based Edit */}
-          <ProjectDescriptionsSection
-            projectId={project.id}
-            initialBrief={project.brief}
-            initialGoals={project.goals}
-            initialDescription={project.description}
-            isManagement={currentUser?.role === "MANAGEMENT" || currentUser?.role === "ADMIN"}
-          />
+      {/* Main Content Layout - Full Width Single Container Stack */}
+      <div className="space-y-8">
+        {/* Project Descriptions Section (Client Brief, Strategic Goals, Agency Execution) */}
+        <ProjectDescriptionsSection
+          projectId={project.id}
+          initialBrief={project.brief}
+          initialGoals={project.goals}
+          initialDescription={project.description}
+          isManagement={currentUser?.role === "MANAGEMENT" || currentUser?.role === "ADMIN"}
+        />
 
-          {/* Centralized Deliverables Hub (URLs) */}
-          <ProjectDeliverablesHub
-            projectId={project.id}
-            previewUrl={project.previewUrl}
-            pitchDeckUrl={project.pitchDeckUrl}
-            creativeDeckUrl={project.creativeDeckUrl}
-            finalAssetsUrl={project.finalAssetsUrl}
-            customDeliverables={project.deliverables as any}
-            canManageDeliverables={canManageDeliverables(currentUser?.position)}
-          />
-        </div>
+        {/* Centralized Deliverables Hub (URLs) */}
+        <ProjectDeliverablesHub
+          projectId={project.id}
+          previewUrl={project.previewUrl}
+          pitchDeckUrl={project.pitchDeckUrl}
+          creativeDeckUrl={project.creativeDeckUrl}
+          finalAssetsUrl={project.finalAssetsUrl}
+          customDeliverables={project.deliverables as any}
+          canManageDeliverables={canManageDeliverables(currentUser?.position)}
+        />
 
-        {/* Right Column: Automated PIC Roster */}
-        <div className="space-y-6">
-          <AutomatedPICRoster pics={project.pics} />
-
-          {/* Quick Help Card */}
-          <Card className="border-border/60 bg-secondary/30 p-4 space-y-2 text-xs">
-            <div className="flex items-center gap-1.5 font-semibold text-foreground">
-              <Sparkles className="h-4 w-4 text-indigo-400" />
-              <span>Agency Workflow Rule</span>
-            </div>
-            <p className="text-muted-foreground leading-relaxed">
-              <strong>Management</strong> provisions the project, overarching timeline, and client brief.
-            </p>
-            <p className="text-muted-foreground leading-relaxed">
-              <strong>Staff members</strong> independently assign themselves tasks within this project using the &ldquo;Add My Task for this Project&rdquo; button, automatically updating the PIC team roster.
-            </p>
-          </Card>
-        </div>
+        {/* Automated PIC Roster & Modern Task Breakdown Table */}
+        <AutomatedPICRoster
+          pics={project.pics}
+          tasks={project.tasks as any}
+        />
       </div>
     </div>
   );
