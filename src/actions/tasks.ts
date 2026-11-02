@@ -1523,3 +1523,29 @@ export async function getStaffDashboardData(targetUserId?: string) {
     },
   };
 }
+
+/**
+ * PRE-FETCH / CACHE REVIEWER MEMBERS (Colleagues list):
+ * Provides fast candidate list of active staff members for MultiSelectReviewers.
+ */
+export async function getReviewerMembersAction() {
+  try {
+    const users = await prisma.user.findMany({
+      select: {
+        id: true,
+        name: true,
+        username: true,
+        position: true,
+        department: true,
+        avatarUrl: true,
+        role: true,
+      },
+      orderBy: { name: "asc" },
+    });
+    return users;
+  } catch (err) {
+    console.error("Error in getReviewerMembersAction:", err);
+    return [];
+  }
+}
+

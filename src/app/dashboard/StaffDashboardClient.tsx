@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -18,6 +18,7 @@ import {
   completeTaskAction,
   createFolderAction,
   deleteFolderAction,
+  getReviewerMembersAction,
 } from "@/actions/tasks";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -392,9 +393,12 @@ function formatDisplayDate(dateKey: string): string {
 
 type SortOption = "newest" | "oldest" | "deadline";
 
+// In-memory module cache to ensure reviewers/colleagues are available instantly across board/modals
+let memoryCachedReviewers: StaffMemberOption[] = [];
+
 export function StaffDashboardClient({
   user,
-  activeTasks,
+  activeTasks: initialActiveTasks,
   archivedTasks,
   delegatedTasks = [],
   reviewRequests = [],
@@ -405,6 +409,59 @@ export function StaffDashboardClient({
   stats,
 }: StaffDashboardClientProps) {
   const router = useRouter();
+
+  // Local active tasks state for instant optimistic updates
+  const [tasks, setTasks] = useState<TaskItem[]>(initialActiveTasks);
+
+  useEffect(() => {
+    setTasks(initialActiveTasks);
+  }, [initialActiveTasks]);
+
+  // Reviewer pre-fetch and memory cache
+  const [cachedStaffMembers, setCachedStaffMembers] = useState<StaffMemberOption[]>(() => {
+    if (staffMembers && staffMembers.length > 0) {
+      memoryCachedReviewers = staffMembers;
+      return staffMembers;
+    }
+    return memoryCachedReviewers;
+  });
+
+  useEffect(() => {
+    if (staffMembers && staffMembers.length > 0) {
+      memoryCachedReviewers = staffMembers;
+      setCachedStaffMembers(staffMembers);
+    }
+  }, [staffMembers]);
+
+  // Pre-fetch reviewer list at workspace/board level so it is immediately available in memory
+  useEffect(() => {
+    if (memoryCachedReviewers.length === 0) {
+      getReviewerMembersAction()
+        .then((members) => {
+          if (members && members.length > 0) {
+            memoryCachedReviewers = members as any;
+            setCachedStaffMembers(members as any);
+          }
+        })
+        .catch((err) => {
+          console.warn("Failed to pre-fetch reviewers:", err);
+        });
+    }
+  }, []);
+
+  const reviewerOptions = useMemo(() => cachedStaffMembers, [cachedStaffMembers]);
+
+  // Lightweight instant toast notification state
+  const [toast, setToast] = useState<{ message: string; type: "success" | "error" | "info" } | null>(null);
+  const toastTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const showToast = useCallback((message: string, type: "success" | "error" | "info" = "info") => {
+    if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
+    setToast({ message, type });
+    toastTimeoutRef.current = setTimeout(() => {
+      setToast(null);
+    }, 4000);
+  }, []);
   const isAdminOrPM =
     user.role === "MANAGEMENT" ||
     user.role === "ADMIN" ||
@@ -488,7 +545,7 @@ export function StaffDashboardClient({
 
       const targetTaskId = params.get("taskId");
       if (targetTaskId) {
-        const inActive = activeTasks.some((t) => t.id === targetTaskId);
+        const inActive = tasks.some((t) => t.id === targetTaskId);
         const inReview = reviewRequests.some((t) => t.id === targetTaskId);
         const inDelegated = delegatedTasks.some((t) => t.id === targetTaskId);
         const inAll = allTasks.some((t) => t.id === targetTaskId);
@@ -521,7 +578,7 @@ export function StaffDashboardClient({
         }, 5000);
       }
     }
-  }, [activeTasks, reviewRequests, delegatedTasks, allTasks, archivedTasks, isAdminOrPM]);
+  }, [tasks, reviewRequests, delegatedTasks, allTasks, archivedTasks, isAdminOrPM]);
 
   useEffect(() => {
     if (editTask) {
@@ -604,77 +661,107 @@ export function StaffDashboardClient({
     }
   };
 
-  // Timer actions
-  const handleStartTimer = async (taskId: string) => {
-    setActionLoadingId(taskId);
-    try {
-      try {
-        const key = `loco_timer_sessions_${taskId}`;
-        const raw = localStorage.getItem(key);
-        const sessions = raw ? JSON.parse(raw) : [];
-        sessions.push({
-          id: `${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-          startedAt: new Date().toISOString(),
-          stoppedAt: null,
-          seconds: 0,
-        });
-        localStorage.setItem(key, JSON.stringify(sessions));
-      } catch {
-        // ignore storage error
-      }
+  // Timer actions with Optimistic UI & Asynchronous Background Execution
+  const handleStartTimer = (taskId: string) => {
+    // 1. Snapshot previous state for rollback on error
+    const previousTasks = [...tasks];
+    const targetTask = tasks.find((t) => t.id === taskId);
+    if (!targetTask) return;
 
-      const res = await startTaskTimerAction(taskId);
-      if (res && !res.success) {
-        alert(res.error || "Gagal memulai task.");
-      } else {
-        const startedTask = activeTasks.find((t) => t.id === taskId);
-        if (typeof window !== "undefined") {
-          window.dispatchEvent(
-            new CustomEvent("task-timer-state-changed", {
-              detail: {
-                taskId,
-                taskTitle: startedTask?.title || "Active Task",
-                timerActive: true,
-              },
-            })
-          );
-        }
-        router.refresh();
-      }
-    } catch (err: any) {
-      console.error("Error starting task timer:", err);
-      alert("Terjadi kesalahan sistem saat memulai task: " + (err?.message || err));
-    } finally {
-      setActionLoadingId(null);
-    }
-  };
+    const nowIso = new Date().toISOString();
+    const isRevision = targetTask.status === "Revision" || targetTask.currentPhase === "REVISION";
 
-  const handlePauseTimer = async (taskId: string) => {
-    setActionLoadingId(taskId);
-    try {
-      try {
-        const key = `loco_timer_sessions_${taskId}`;
-        const raw = localStorage.getItem(key);
-        if (raw) {
-          const sessions = JSON.parse(raw);
-          const activeSession = sessions.find((s: any) => !s.stoppedAt);
-          if (activeSession) {
-            activeSession.stoppedAt = new Date().toISOString();
-            activeSession.seconds = Math.max(
-              0,
-              Math.floor((Date.now() - new Date(activeSession.startedAt).getTime()) / 1000)
+    // 2. Immediately update local React state:
+    // Change status to 'On Progress' (or keep 'Revision' if in revision phase), start timer active with nowIso
+    setTasks((prev) =>
+      prev.map((t) => {
+        if (t.id === taskId) {
+          let updatedRevisions = t.revisions;
+          if (isRevision && t.revisions) {
+            updatedRevisions = t.revisions.map((rev) =>
+              rev.round === t.currentRevisionRound
+                ? { ...rev, timerActive: true, timerStartedAt: nowIso, status: "IN_PROGRESS" }
+                : rev
             );
-            localStorage.setItem(key, JSON.stringify(sessions));
           }
+          return {
+            ...t,
+            status: isRevision ? "Revision" : "On Progress",
+            currentPhase: isRevision ? "REVISION" : "INITIAL",
+            timerActive: true,
+            timerStartedAt: nowIso,
+            revisions: updatedRevisions,
+          };
+        } else if (t.timerActive) {
+          // Pause any other previously running task locally
+          const elapsed = t.timerStartedAt
+            ? Math.max(0, Math.floor((Date.now() - new Date(t.timerStartedAt).getTime()) / 1000))
+            : 0;
+          return {
+            ...t,
+            timerActive: false,
+            timerStartedAt: null,
+            totalSeconds: (t.totalSeconds || 0) + elapsed,
+          };
         }
-      } catch {
-        // ignore storage error
-      }
+        return t;
+      })
+    );
 
-      const res = await pauseTaskTimerAction(taskId);
-      if (res && !res.success) {
-        alert(res.error || "Gagal menjeda timer.");
-      } else {
+    // 3. Immediately dispatch presence / navbar event so header stopwatch pulses instantly
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(
+        new CustomEvent("task-timer-state-changed", {
+          detail: {
+            taskId,
+            taskTitle: targetTask.title || "Active Task",
+            timerActive: true,
+          },
+        })
+      );
+    }
+
+    // 4. Update localStorage session instantly
+    try {
+      const key = `loco_timer_sessions_${taskId}`;
+      const raw = localStorage.getItem(key);
+      const sessions = raw ? JSON.parse(raw) : [];
+      sessions.push({
+        id: `${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+        startedAt: nowIso,
+        stoppedAt: null,
+        seconds: 0,
+      });
+      localStorage.setItem(key, JSON.stringify(sessions));
+    } catch {
+      // ignore storage error
+    }
+
+    // 5. Execute Supabase database mutation asynchronously in background
+    startTaskTimerAction(taskId)
+      .then((res) => {
+        if (res && !res.success) {
+          // Revert local state and show toast error
+          setTasks(previousTasks);
+          if (typeof window !== "undefined") {
+            window.dispatchEvent(
+              new CustomEvent("task-timer-state-changed", {
+                detail: {
+                  taskId: null,
+                  taskTitle: null,
+                  timerActive: false,
+                },
+              })
+            );
+          }
+          showToast(res.error || "Gagal memulai task di server.", "error");
+        } else {
+          router.refresh();
+        }
+      })
+      .catch((err: any) => {
+        console.error("Error starting task timer:", err);
+        setTasks(previousTasks);
         if (typeof window !== "undefined") {
           window.dispatchEvent(
             new CustomEvent("task-timer-state-changed", {
@@ -686,14 +773,97 @@ export function StaffDashboardClient({
             })
           );
         }
-        router.refresh();
-      }
-    } catch (err: any) {
-      console.error("Error pausing task timer:", err);
-      alert("Terjadi kesalahan sistem saat menjeda timer: " + (err?.message || err));
-    } finally {
-      setActionLoadingId(null);
+        showToast("Terjadi kesalahan sistem saat memulai task: " + (err?.message || err), "error");
+      });
+  };
+
+  const handlePauseTimer = (taskId: string) => {
+    // 1. Snapshot previous state for rollback
+    const previousTasks = [...tasks];
+    const targetTask = tasks.find((t) => t.id === taskId);
+    if (!targetTask) return;
+
+    const rawElapsed = targetTask.timerActive && targetTask.timerStartedAt
+      ? Math.floor((Date.now() - new Date(targetTask.timerStartedAt).getTime()) / 1000)
+      : 0;
+    const elapsed = Math.max(0, isNaN(rawElapsed) ? 0 : rawElapsed);
+    const isRevision = targetTask.status === "Revision" || targetTask.currentPhase === "REVISION";
+
+    // 2. Immediately pause local timer on UI
+    setTasks((prev) =>
+      prev.map((t) => {
+        if (t.id === taskId) {
+          let updatedRevisions = t.revisions;
+          if (isRevision && t.revisions) {
+            updatedRevisions = t.revisions.map((rev) =>
+              rev.round === t.currentRevisionRound
+                ? {
+                    ...rev,
+                    seconds: (rev.seconds || 0) + elapsed,
+                    timerActive: false,
+                    timerStartedAt: null,
+                  }
+                : rev
+            );
+          }
+          return {
+            ...t,
+            timerActive: false,
+            timerStartedAt: null,
+            totalSeconds: (t.totalSeconds || 0) + elapsed,
+            initialSeconds: isRevision ? t.initialSeconds : (t.initialSeconds || 0) + elapsed,
+            revisions: updatedRevisions,
+          };
+        }
+        return t;
+      })
+    );
+
+    // 3. Immediately dispatch presence / navbar event
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(
+        new CustomEvent("task-timer-state-changed", {
+          detail: {
+            taskId: null,
+            taskTitle: null,
+            timerActive: false,
+          },
+        })
+      );
     }
+
+    // 4. Update localStorage
+    try {
+      const key = `loco_timer_sessions_${taskId}`;
+      const raw = localStorage.getItem(key);
+      if (raw) {
+        const sessions = JSON.parse(raw);
+        const activeSession = sessions.find((s: any) => !s.stoppedAt);
+        if (activeSession) {
+          activeSession.stoppedAt = new Date().toISOString();
+          activeSession.seconds = elapsed;
+          localStorage.setItem(key, JSON.stringify(sessions));
+        }
+      }
+    } catch {
+      // ignore storage error
+    }
+
+    // 5. Fire database update in background asynchronously
+    pauseTaskTimerAction(taskId)
+      .then((res) => {
+        if (res && !res.success) {
+          setTasks(previousTasks);
+          showToast(res.error || "Gagal menjeda timer.", "error");
+        } else {
+          router.refresh();
+        }
+      })
+      .catch((err: any) => {
+        console.error("Error pausing task timer:", err);
+        setTasks(previousTasks);
+        showToast("Terjadi kesalahan sistem saat menjeda timer: " + (err?.message || err), "error");
+      });
   };
 
   const handleDeliverTask = async (taskId: string) => {
@@ -701,20 +871,104 @@ export function StaffDashboardClient({
     try {
       const res = await deliverTaskAction(taskId);
       if (res && !res.success) {
-        alert(res.error || "Gagal mendeliver task.");
+        showToast(res.error || "Gagal mendeliver task.", "error");
       } else {
+        showToast("Task berhasil di-deliver!", "success");
         router.refresh();
       }
     } catch (err: any) {
       console.error("Error delivering task:", err);
-      alert("Terjadi kesalahan sistem saat mendeliver task: " + (err?.message || err));
+      showToast("Terjadi kesalahan sistem saat mendeliver task: " + (err?.message || err), "error");
     } finally {
       setActionLoadingId(null);
     }
   };
 
   const handleOpenDeliverModal = (task: TaskItem) => {
-    setDeliverModalTask(task);
+    // 1. Instantly pause local timer on UI if active
+    let taskToDeliver = { ...task };
+    if (task.timerActive) {
+      const rawElapsed = task.timerStartedAt
+        ? Math.floor((Date.now() - new Date(task.timerStartedAt).getTime()) / 1000)
+        : 0;
+      const elapsed = Math.max(0, isNaN(rawElapsed) ? 0 : rawElapsed);
+      const isRevision = task.status === "Revision" || task.currentPhase === "REVISION";
+
+      setTasks((prev) =>
+        prev.map((t) => {
+          if (t.id === task.id) {
+            let updatedRevisions = t.revisions;
+            if (isRevision && t.revisions) {
+              updatedRevisions = t.revisions.map((rev) =>
+                rev.round === t.currentRevisionRound
+                  ? {
+                      ...rev,
+                      seconds: (rev.seconds || 0) + elapsed,
+                      timerActive: false,
+                      timerStartedAt: null,
+                    }
+                  : rev
+              );
+            }
+            return {
+              ...t,
+              timerActive: false,
+              timerStartedAt: null,
+              totalSeconds: (t.totalSeconds || 0) + elapsed,
+              initialSeconds: isRevision ? t.initialSeconds : (t.initialSeconds || 0) + elapsed,
+              revisions: updatedRevisions,
+            };
+          }
+          return t;
+        })
+      );
+
+      taskToDeliver = {
+        ...taskToDeliver,
+        timerActive: false,
+        timerStartedAt: null,
+        totalSeconds: (taskToDeliver.totalSeconds || 0) + elapsed,
+      };
+
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(
+          new CustomEvent("task-timer-state-changed", {
+            detail: {
+              taskId: null,
+              taskTitle: null,
+              timerActive: false,
+            },
+          })
+        );
+      }
+
+      try {
+        const key = `loco_timer_sessions_${task.id}`;
+        const raw = localStorage.getItem(key);
+        if (raw) {
+          const sessions = JSON.parse(raw);
+          const activeSession = sessions.find((s: any) => !s.stoppedAt);
+          if (activeSession) {
+            activeSession.stoppedAt = new Date().toISOString();
+            activeSession.seconds = elapsed;
+            localStorage.setItem(key, JSON.stringify(sessions));
+          }
+        }
+      } catch {
+        // ignore
+      }
+
+      // 2. Fire database update to stop timer asynchronously in background without blocking modal state
+      Promise.resolve().then(async () => {
+        try {
+          await pauseTaskTimerAction(task.id);
+        } catch (err) {
+          console.error("Background timer pause failed on Deliver click:", err);
+        }
+      });
+    }
+
+    // Pre-populate reviewer selection from cached memory
     let initialSelected: string[] = [];
     if (task.reviewerIds) {
       try {
@@ -729,6 +983,9 @@ export function StaffDashboardClient({
     } else if (initialSelected.length === 0 && task.createdById && task.createdById !== task.userId) {
       initialSelected = [task.createdById];
     }
+
+    // Synchronously set modal state & open Deliver Modal (instant responsive UI)
+    setDeliverModalTask(taskToDeliver);
     setDeliverTargetUserIds(initialSelected);
     setDeliverDescription(task.previewDescription || "");
     setDeliverModalOpen(true);
@@ -738,29 +995,49 @@ export function StaffDashboardClient({
     e.preventDefault();
     if (!deliverModalTask) return;
     if (!deliverDescription.trim()) {
-      alert("Mohon masukkan Request Description / catatan hasil kerja terlebih dahulu.");
+      showToast("Mohon masukkan Request Description / catatan hasil kerja terlebih dahulu.", "error");
       return;
     }
+
+    const taskId = deliverModalTask.id;
+    const desc = deliverDescription.trim();
+    const targets = deliverTargetUserIds;
+
+    // Optimistically update task status to "In Review"
+    setTasks((prev) =>
+      prev.map((t) =>
+        t.id === taskId
+          ? {
+              ...t,
+              status: "In Review",
+              previewDescription: desc,
+              reviewerIds: JSON.stringify(targets),
+              reviewerId: targets[0] || t.reviewerId,
+            }
+          : t
+      )
+    );
+
+    setDeliverModalOpen(false);
+    setDeliverModalTask(null);
+    setDeliverDescription("");
+    setDeliverTargetUserIds([]);
+    showToast("Task berhasil di-deliver! Menunggu review & persetujuan.", "success");
 
     setDeliverSubmitting(true);
     try {
       const res = await deliverTaskAction({
-        taskId: deliverModalTask.id,
-        targetUserIds: deliverTargetUserIds.length > 0 ? deliverTargetUserIds : undefined,
-        description: deliverDescription.trim(),
+        taskId,
+        targetUserIds: targets.length > 0 ? targets : undefined,
+        description: desc,
       });
       if (res && !res.success) {
-        alert(res.error || "Gagal mendeliver task.");
-      } else {
-        setDeliverModalOpen(false);
-        setDeliverModalTask(null);
-        setDeliverDescription("");
-        setDeliverTargetUserIds([]);
-        router.refresh();
+        showToast(res.error || "Gagal mendeliver task.", "error");
       }
+      router.refresh();
     } catch (err: any) {
       console.error("Error delivering task:", err);
-      alert("Terjadi kesalahan sistem saat mendeliver task: " + (err?.message || err));
+      showToast("Terjadi kesalahan sistem saat mendeliver task: " + (err?.message || err), "error");
     } finally {
       setDeliverSubmitting(false);
     }
@@ -812,7 +1089,68 @@ export function StaffDashboardClient({
   };
 
   const handleOpenRequestPreview = (task: TaskItem) => {
-    setPreviewModalTask(task);
+    // 1. Instantly pause local timer on UI if active
+    let taskToPreview = { ...task };
+    if (task.timerActive) {
+      const rawElapsed = task.timerStartedAt
+        ? Math.floor((Date.now() - new Date(task.timerStartedAt).getTime()) / 1000)
+        : 0;
+      const elapsed = Math.max(0, isNaN(rawElapsed) ? 0 : rawElapsed);
+      const isRevision = task.status === "Revision" || task.currentPhase === "REVISION";
+
+      setTasks((prev) =>
+        prev.map((t) => {
+          if (t.id === task.id) {
+            let updatedRevisions = t.revisions;
+            if (isRevision && t.revisions) {
+              updatedRevisions = t.revisions.map((rev) =>
+                rev.round === t.currentRevisionRound
+                  ? {
+                      ...rev,
+                      seconds: (rev.seconds || 0) + elapsed,
+                      timerActive: false,
+                      timerStartedAt: null,
+                    }
+                  : rev
+              );
+            }
+            return {
+              ...t,
+              timerActive: false,
+              timerStartedAt: null,
+              totalSeconds: (t.totalSeconds || 0) + elapsed,
+              initialSeconds: isRevision ? t.initialSeconds : (t.initialSeconds || 0) + elapsed,
+              revisions: updatedRevisions,
+            };
+          }
+          return t;
+        })
+      );
+
+      taskToPreview = {
+        ...taskToPreview,
+        timerActive: false,
+        timerStartedAt: null,
+        totalSeconds: (taskToPreview.totalSeconds || 0) + elapsed,
+      };
+
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(
+          new CustomEvent("task-timer-state-changed", {
+            detail: { taskId: null, taskTitle: null, timerActive: false },
+          })
+        );
+      }
+
+      Promise.resolve().then(async () => {
+        try {
+          await pauseTaskTimerAction(task.id);
+        } catch (err) {
+          console.error("Background timer pause failed on Preview click:", err);
+        }
+      });
+    }
+
     let initialSelected: string[] = [];
     if (task.reviewerIds) {
       try {
@@ -827,6 +1165,7 @@ export function StaffDashboardClient({
     }
     setPreviewTargetUserIds(initialSelected);
     setPreviewDescription(task.previewDescription || "");
+    setPreviewModalTask(taskToPreview);
     setPreviewModalOpen(true);
   };
 
@@ -834,30 +1173,50 @@ export function StaffDashboardClient({
     e.preventDefault();
     if (!previewModalTask) return;
     if (!previewTargetUserIds || previewTargetUserIds.length === 0) {
-      alert("Pilih minimal satu Reviewer (Target User).");
+      showToast("Pilih minimal satu Reviewer (Target User).", "error");
       return;
     }
+
+    const taskId = previewModalTask.id;
+    const desc = previewDescription.trim();
+    const targets = previewTargetUserIds;
+
+    // Optimistically update task status to "In Review"
+    setTasks((prev) =>
+      prev.map((t) =>
+        t.id === taskId
+          ? {
+              ...t,
+              status: "In Review",
+              previewDescription: desc,
+              reviewerIds: JSON.stringify(targets),
+              reviewerId: targets[0] || t.reviewerId,
+            }
+          : t
+      )
+    );
+
+    setPreviewModalOpen(false);
+    setPreviewModalTask(null);
+    setPreviewDescription("");
+    setPreviewTargetUserIds([]);
+    showToast("Request preview berhasil dikirim ke reviewer!", "success");
 
     setPreviewSubmitting(true);
     try {
       const res = await requestTaskPreviewAction({
-        taskId: previewModalTask.id,
-        targetUserIds: previewTargetUserIds,
-        description: previewDescription.trim(),
+        taskId,
+        targetUserIds: targets,
+        description: desc,
       });
 
-      if (res && res.success) {
-        setPreviewModalOpen(false);
-        setPreviewModalTask(null);
-        setPreviewDescription("");
-        setPreviewTargetUserIds([]);
-        router.refresh();
-      } else {
-        alert(res?.error || "Gagal mengajukan preview task.");
+      if (res && !res.success) {
+        showToast(res.error || "Gagal mengajukan preview task.", "error");
       }
+      router.refresh();
     } catch (err: any) {
       console.error("Error requesting preview:", err);
-      alert("Terjadi kesalahan sistem saat mengajukan preview task: " + (err?.message || err));
+      showToast("Terjadi kesalahan sistem saat mengajukan preview task: " + (err?.message || err), "error");
     } finally {
       setPreviewSubmitting(false);
     }
@@ -893,34 +1252,43 @@ export function StaffDashboardClient({
   };
 
   const handleDoneTask = async (taskId: string) => {
-    setActionLoadingId(taskId);
+    const previousTasks = [...tasks];
+    setTasks((prev) => prev.filter((t) => t.id !== taskId));
+    showToast("Task berhasil diselesaikan (Done)!", "success");
+
     try {
       const res = await completeTaskAction(taskId);
-      if (res && res.success) {
-        router.refresh();
+      if (res && !res.success) {
+        setTasks(previousTasks);
+        showToast(res.error || "Gagal menyelesaikan task.", "error");
       } else {
-        alert(res?.error || "Gagal menyelesaikan task.");
+        router.refresh();
       }
     } catch (err: any) {
       console.error("Error completing task:", err);
-      alert("Terjadi kesalahan sistem saat menyelesaikan task: " + (err?.message || err));
-    } finally {
-      setActionLoadingId(null);
+      setTasks(previousTasks);
+      showToast("Terjadi kesalahan sistem saat menyelesaikan task.", "error");
     }
   };
 
   const handleDeleteTask = async (taskId: string) => {
     if (confirm("Are you sure you want to delete this task?")) {
+      const previousTasks = [...tasks];
+      setTasks((prev) => prev.filter((t) => t.id !== taskId));
+      showToast("Task berhasil dihapus.", "info");
+
       try {
         const res = await deleteTaskAction(taskId);
         if (res && !res.success) {
-          alert(res.error || "Gagal menghapus task.");
+          setTasks(previousTasks);
+          showToast(res.error || "Gagal menghapus task.", "error");
         } else {
           router.refresh();
         }
       } catch (err: any) {
         console.error("Error deleting task:", err);
-        alert("Terjadi kesalahan sistem saat menghapus task: " + (err?.message || err));
+        setTasks(previousTasks);
+        showToast("Terjadi kesalahan sistem saat menghapus task.", "error");
       }
     }
   };
@@ -940,7 +1308,7 @@ export function StaffDashboardClient({
   };
 
   const handleExportMyTasks = () => {
-    const allMyTasks = [...activeTasks, ...archivedTasks];
+    const allMyTasks = [...tasks, ...archivedTasks];
     if (allMyTasks.length === 0) {
       alert("Belum ada task untuk diekspor.");
       return;
@@ -1016,7 +1384,7 @@ export function StaffDashboardClient({
     URL.revokeObjectURL(url);
   };
 
-  const allMyTasks = [...activeTasks, ...archivedTasks];
+  const allMyTasks = [...tasks, ...archivedTasks];
 
   const filteredActiveTasks = (() => {
     let pool: TaskItem[];
@@ -1025,7 +1393,7 @@ export function StaffDashboardClient({
     } else if (selectedDateFilter) {
       pool = allMyTasks;
     } else {
-      pool = activeTasks;
+      pool = tasks;
     }
 
     let result = pool.filter((t) => {
@@ -1153,7 +1521,7 @@ export function StaffDashboardClient({
   })();
 
   // Calendar Widget Computations
-  const allWorkspaceTasks = isAdminOrPM && allTasks.length > 0 ? allTasks : [...activeTasks, ...archivedTasks, ...delegatedTasks];
+  const allWorkspaceTasks = isAdminOrPM && allTasks.length > 0 ? allTasks : [...tasks, ...archivedTasks, ...delegatedTasks];
   const tasksByDateMap: Record<string, typeof allWorkspaceTasks> = {};
   allWorkspaceTasks.forEach((t) => {
     const dates = new Set<string>();
@@ -1434,7 +1802,7 @@ export function StaffDashboardClient({
                       Myself ({user.name} • {user.position})
                     </option>
                     <optgroup label="Delegate to Other Staff Specialists">
-                      {staffMembers
+                      {reviewerOptions
                         .filter((s) => s.id !== user.id)
                         .map((s) => (
                           <option key={s.id} value={s.id}>
@@ -1455,7 +1823,7 @@ export function StaffDashboardClient({
                     <span>Reviewers / Evaluators (Parallel Review)</span>
                   </Label>
                   <MultiSelectReviewers
-                    options={staffMembers || []}
+                    options={reviewerOptions}
                     selectedIds={createReviewerIds}
                     onChange={setCreateReviewerIds}
                     placeholder="Pilih satu atau beberapa reviewer (cth: Head Creative, Art Director, CEO)..."
@@ -2459,7 +2827,7 @@ export function StaffDashboardClient({
                           }
 
                           const assignedReviewers = revIds
-                            .map((rId) => (staffMembers || []).find((s) => s.id === rId))
+                            .map((rId) => (reviewerOptions || []).find((s) => s.id === rId))
                             .filter(Boolean) as StaffMemberOption[];
 
                           if (assignedReviewers.length === 0 && task.reviewer) {
@@ -4615,7 +4983,7 @@ export function StaffDashboardClient({
                       Keep current assignee {("user" in editTask && editTask.user) ? `(${editTask.user.name})` : `(${user.name})`}
                     </option>
                     <option value="ME">Myself ({user.name})</option>
-                    {staffMembers
+                    {reviewerOptions
                       .filter((s) => s.id !== user.id)
                       .map((s) => (
                         <option key={s.id} value={s.id}>
@@ -4805,7 +5173,7 @@ export function StaffDashboardClient({
                   </span>
                 </Label>
                 <MultiSelectReviewers
-                  options={staffMembers || []}
+                  options={reviewerOptions}
                   selectedIds={previewTargetUserIds}
                   onChange={setPreviewTargetUserIds}
                   excludeUserId={previewModalTask.userId}
@@ -4902,7 +5270,7 @@ export function StaffDashboardClient({
                   </span>
                 </Label>
                 <MultiSelectReviewers
-                  options={staffMembers || []}
+                  options={reviewerOptions}
                   selectedIds={deliverTargetUserIds}
                   onChange={setDeliverTargetUserIds}
                   excludeUserId={deliverModalTask.userId}
@@ -4961,6 +5329,34 @@ export function StaffDashboardClient({
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Toast Notification Container */}
+      {toast && (
+        <div
+          role="status"
+          className={`fixed bottom-6 right-6 z-50 flex items-center gap-3 px-4 py-3 rounded-2xl shadow-2xl text-xs font-semibold backdrop-blur-md border animate-fade-in ${
+            toast.type === "error"
+              ? "bg-rose-600/95 text-white border-rose-500 shadow-rose-900/30"
+              : toast.type === "success"
+              ? "bg-emerald-600/95 text-white border-emerald-500 shadow-emerald-900/30"
+              : "bg-zinc-800/95 text-white border-zinc-700 shadow-zinc-900/30"
+          }`}
+        >
+          {toast.type === "error" ? (
+            <AlertTriangle className="h-4 w-4 shrink-0 text-white" />
+          ) : (
+            <CheckCircle2 className="h-4 w-4 shrink-0 text-white" />
+          )}
+          <span>{toast.message}</span>
+          <button
+            type="button"
+            onClick={() => setToast(null)}
+            className="ml-2 text-white/80 hover:text-white p-0.5 rounded-full hover:bg-white/10"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
 
       {/* Staff Performance & Narrative Report Modal */}
       <StaffReportModal

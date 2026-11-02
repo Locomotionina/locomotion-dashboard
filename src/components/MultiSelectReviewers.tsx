@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -54,24 +54,30 @@ export function MultiSelectReviewers({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  const availableOptions = options.filter(
-    (opt) => !excludeUserId || opt.id !== excludeUserId
-  );
-
-  const filteredOptions = availableOptions.filter((opt) => {
-    const query = search.toLowerCase().trim();
-    if (!query) return true;
-    return (
-      opt.name.toLowerCase().includes(query) ||
-      (opt.username && opt.username.toLowerCase().includes(query)) ||
-      (opt.position && opt.position.toLowerCase().includes(query)) ||
-      (opt.department && opt.department.toLowerCase().includes(query))
+  const availableOptions = useMemo(() => {
+    return (options || []).filter(
+      (opt) => !excludeUserId || opt.id !== excludeUserId
     );
-  });
+  }, [options, excludeUserId]);
 
-  const selectedOptions = availableOptions.filter((opt) =>
-    selectedIds.includes(opt.id)
-  );
+  const filteredOptions = useMemo(() => {
+    const query = search.toLowerCase().trim();
+    if (!query) return availableOptions;
+    return availableOptions.filter((opt) => {
+      return (
+        opt.name.toLowerCase().includes(query) ||
+        (opt.username && opt.username.toLowerCase().includes(query)) ||
+        (opt.position && opt.position.toLowerCase().includes(query)) ||
+        (opt.department && opt.department.toLowerCase().includes(query))
+      );
+    });
+  }, [availableOptions, search]);
+
+  const selectedOptions = useMemo(() => {
+    return availableOptions.filter((opt) =>
+      selectedIds.includes(opt.id)
+    );
+  }, [availableOptions, selectedIds]);
 
   const toggleSelect = (userId: string) => {
     if (selectedIds.includes(userId)) {
