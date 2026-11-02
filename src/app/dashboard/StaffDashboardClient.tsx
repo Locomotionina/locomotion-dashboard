@@ -1720,18 +1720,24 @@ export function StaffDashboardClient({
               setCustomOutputType("");
             }
           }}>
-          <DialogContent className="max-w-lg rounded-2xl">
-            <form onSubmit={handleCreateTask}>
+          <DialogContent className="max-w-4xl sm:max-w-4xl rounded-2xl max-h-[92vh] overflow-y-auto">
+            <form onSubmit={handleCreateTask} className="flex flex-col gap-4">
               <DialogHeader>
-                <DialogTitle>Create / Deliver Task</DialogTitle>
-                <DialogDescription className="text-xs">
+                <DialogTitle className="text-lg font-bold">Create / Deliver Task</DialogTitle>
+                <DialogDescription className="text-xs text-muted-foreground">
                   Create a task for yourself or delegate/deliver it to another agency staff specialist with auto-timer.
                 </DialogDescription>
               </DialogHeader>
 
-              <div className="space-y-4 py-4">
-                <div className="space-y-1.5">
-                  <Label htmlFor="title">Task Title</Label>
+              {/* Two-Column Responsive Grid Layout */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 py-2">
+                {/* Left Column (Categorization & Assignment) */}
+                <div className="space-y-4 flex flex-col">
+                  {/* 1. Task Title */}
+                  <div className="space-y-1.5">
+                    <Label htmlFor="title" className="font-semibold text-foreground">
+                      Task Title <span className="text-rose-500">*</span>
+                    </Label>
                   <Input
                     id="title"
                     name="title"
@@ -1889,26 +1895,36 @@ export function StaffDashboardClient({
                     Pilih folder jika task ini ingin dikelompokkan ke dalam wadah deliverable tertentu.
                   </p>
                 </div>
+              </div>
 
-                <div className="space-y-1.5">
-                  <Label htmlFor="description">Task Description / Brief</Label>
+              {/* Right Column (Details & Execution) */}
+              <div className="space-y-4 flex flex-col justify-between">
+                {/* Task Description / Brief (Enhanced with flex-grow & larger rows) */}
+                <div className="space-y-1.5 flex flex-col flex-1 min-h-[140px]">
+                  <Label htmlFor="description" className="font-semibold text-foreground">
+                    Task Description / Brief
+                  </Label>
                   <Textarea
                     id="description"
                     name="description"
                     placeholder="Key deliverables, briefs, assets, or instructions for the assignee..."
-                    rows={3}
-                    className="rounded-xl"
+                    rows={8}
+                    className="rounded-xl flex-1 resize-y min-h-[140px]"
                   />
+                  <p className="text-[11px] text-muted-foreground">
+                    Tuliskan brief pengerjaan, spesifikasi deliverables, atau referensi link.
+                  </p>
                 </div>
 
-                <div className="grid grid-cols-2 gap-3">
+                {/* Priority & Initial Status (Grouped side-by-side using grid-cols-2 gap-4) */}
+                <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-1.5">
-                    <Label htmlFor="priority">Priority</Label>
+                    <Label htmlFor="priority" className="font-semibold text-foreground">Priority</Label>
                     <select
                       id="priority"
                       name="priority"
                       defaultValue="MEDIUM"
-                      className="flex h-10 w-full rounded-xl border border-input bg-card px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring text-foreground"
+                      className="flex h-10 w-full rounded-xl border border-input bg-card px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring text-foreground font-medium"
                     >
                       <option value="URGENT">URGENT</option>
                       <option value="HIGH">HIGH</option>
@@ -1918,12 +1934,12 @@ export function StaffDashboardClient({
                   </div>
 
                   <div className="space-y-1.5">
-                    <Label htmlFor="status">Initial Status</Label>
+                    <Label htmlFor="status" className="font-semibold text-foreground">Initial Status</Label>
                     <select
                       id="status"
                       name="status"
                       defaultValue="To Do"
-                      className="flex h-10 w-full rounded-xl border border-input bg-card px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring text-foreground"
+                      className="flex h-10 w-full rounded-xl border border-input bg-card px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring text-foreground font-medium"
                     >
                       <option value="To Do">To Do (Waiting to Start)</option>
                       <option value="On Progress">On Progress</option>
@@ -1931,14 +1947,15 @@ export function StaffDashboardClient({
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-3">
+                {/* Due Date & Est. Hours (Grouped side-by-side using grid-cols-2 gap-4) */}
+                <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-1.5">
-                    <Label htmlFor="dueDate">Due Date</Label>
+                    <Label htmlFor="dueDate" className="font-semibold text-foreground">Due Date</Label>
                     <Input id="dueDate" name="dueDate" type="date" className="rounded-xl" />
                   </div>
 
                   <div className="space-y-1.5">
-                    <Label htmlFor="estimatedHours">Est. Hours</Label>
+                    <Label htmlFor="estimatedHours" className="font-semibold text-foreground">Est. Hours</Label>
                     <Input
                       id="estimatedHours"
                       name="estimatedHours"
@@ -1950,29 +1967,31 @@ export function StaffDashboardClient({
                   </div>
                 </div>
               </div>
+            </div>
 
-              <DialogFooter>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => setCreateOpen(false)}
-                  disabled={loading}
-                  className="rounded-xl"
-                >
-                  Cancel
-                </Button>
-                <Button
-                  type="submit"
-                  disabled={loading}
-                  className="gap-2 rounded-xl bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 text-white border-0 shadow-sm"
-                >
-                  {loading && <Loader2 className="h-4 w-4 animate-spin" />}
-                  <span>Save / Deliver Task</span>
-                </Button>
-              </DialogFooter>
-            </form>
-          </DialogContent>
-        </Dialog>
+            {/* Action Buttons (Footer) at bottom right */}
+            <DialogFooter className="pt-4 border-t border-border/50 flex items-center justify-end gap-2.5">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setCreateOpen(false)}
+                disabled={loading}
+                className="rounded-xl px-4"
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                disabled={loading}
+                className="gap-2 rounded-xl bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 text-white border-0 shadow-sm px-5"
+              >
+                {loading && <Loader2 className="h-4 w-4 animate-spin" />}
+                <span>Save / Deliver Task</span>
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
 
         {/* Create Folder Modal */}
         <Dialog open={createFolderOpen} onOpenChange={setCreateFolderOpen}>
