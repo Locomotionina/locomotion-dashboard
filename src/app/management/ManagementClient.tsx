@@ -7,7 +7,12 @@ import {
   StaffCapacitySummary,
   PendingProfileRequestItem,
   PendingPasswordRequestItem,
+  getLiveStaffTelemetryAction,
 } from "@/actions/management";
+import {
+  getSupabaseBrowserClient,
+  LOCOMOTION_PRESENCE_CHANNEL,
+} from "@/lib/supabase";
 import {
   approveProfileUpdateAction,
   rejectProfileUpdateAction,
@@ -122,6 +127,138 @@ export function ManagementClient({
   const [selectedStaffReportId, setSelectedStaffReportId] = useState<string | null>(null);
   const [selectedStaffName, setSelectedStaffName] = useState<string>("");
   const [isStaffReportOpen, setIsStaffReportOpen] = useState(false);
+
+  // Real-time Supabase Presence & Live Active Task Tracker
+  const [onlineUserIds, setOnlineUserIds] = useState<Set<string>>(new Set());
+  const [liveActiveTasks, setLiveActiveTasks] = useState<
+    Record<
+      string,
+      {
+        id: string;
+        title: string;
+        status: string;
+        timerActive: boolean;
+        projectName?: string | null;
+      } | null
+    >
+  >(() => {
+    const initialMap: Record<string, any> = {};
+    for (const s of staffSummaries) {
+      initialMap[s.id] = s.activeTask || null;
+    }
+    return initialMap;
+  });
+
+  useEffect(() => {
+    // 1. Supabase Realtime Presence Channel
+    const supabase = getSupabaseBrowserClient();
+    let channel: any = null;
+
+    if (supabase) {
+      channel = supabase.channel(LOCOMOTION_PRESENCE_CHANNEL);
+
+      channel
+        .on("presence", { event: "sync" }, () => {
+          const state = channel.presenceState();
+          const activeIds = new Set<string>();
+          const taskUpdates: Record<string, any> = {};
+
+          for (const key of Object.keys(state)) {
+            const presences = state[key] as any[];
+            for (const p of presences) {
+              if (p?.userId) {
+                activeIds.add(p.userId);
+                if (p.activeTaskId && p.activeTaskTitle) {
+                  taskUpdates[p.userId] = {
+                    id: p.activeTaskId,
+                    title: p.activeTaskTitle,
+                    timerActive: Boolean(p.isTimerActive),
+                    status: p.isTimerActive ? "On Progress" : "Browsing",
+                  };
+                }
+              }
+            }
+          }
+
+          setOnlineUserIds((prev) => {
+            const merged = new Set(prev);
+            activeIds.forEach((id) => merged.add(id));
+            return merged;
+          });
+
+          if (Object.keys(taskUpdates).length > 0) {
+            setLiveActiveTasks((prev) => ({ ...prev, ...taskUpdates }));
+          }
+        })
+        .on("presence", { event: "join" }, ({ newPresences }: any) => {
+          setOnlineUserIds((prev) => {
+            const next = new Set(prev);
+            for (const p of newPresences) {
+              if (p?.userId) next.add(p.userId);
+            }
+            return next;
+          });
+        })
+        .on("presence", { event: "leave" }, ({ leftPresences }: any) => {
+          setOnlineUserIds((prev) => {
+            const next = new Set(prev);
+            for (const p of leftPresences) {
+              if (p?.userId) next.delete(p.userId);
+            }
+            return next;
+          });
+        })
+        .on("broadcast", { event: "task_timer_updated" }, ({ payload }: any) => {
+          if (payload?.userId) {
+            setLiveActiveTasks((prev) => ({
+              ...prev,
+              [payload.userId]: payload.taskId
+                ? {
+                    id: payload.taskId,
+                    title: payload.taskTitle,
+                    timerActive: Boolean(payload.timerActive),
+                    status: payload.timerActive ? "On Progress" : "Browsing",
+                  }
+                : null,
+            }));
+          }
+        })
+        .subscribe();
+    }
+
+    // 2. High-performance fallback telemetry sync (runs every 8s, paused if document hidden)
+    const syncTelemetry = async () => {
+      if (typeof document !== "undefined" && document.hidden) return;
+      try {
+        const telemetry = await getLiveStaffTelemetryAction();
+        if (telemetry) {
+          setOnlineUserIds((prev) => {
+            const next = new Set(prev);
+            for (const id of telemetry.onlineUserIds) {
+              next.add(id);
+            }
+            return next;
+          });
+          setLiveActiveTasks((prev) => ({
+            ...prev,
+            ...telemetry.activeTasks,
+          }));
+        }
+      } catch {
+        // Silently swallow network / server transition errors
+      }
+    };
+
+    syncTelemetry();
+    const pollTimer = setInterval(syncTelemetry, 8000);
+
+    return () => {
+      clearInterval(pollTimer);
+      if (channel) {
+        channel.unsubscribe();
+      }
+    };
+  }, []);
 
   // Pending lists states
   const [pendingUserList, setPendingUserList] = useState<PendingUser[]>(pendingUsers);
@@ -911,6 +1048,11 @@ export function ManagementClient({
             const isOverloaded = staff.capacityStatus === "OVERLOADED";
             const isAvailable = staff.capacityStatus === "AVAILABLE";
             const isSelf = staff.id === currentUserId;
+            const isOnline = onlineUserIds.has(staff.id);
+            const activeTask =
+              liveActiveTasks[staff.id] !== undefined
+                ? liveActiveTasks[staff.id]
+                : staff.activeTask;
 
             return (
               <Card
@@ -935,14 +1077,12 @@ export function ManagementClient({
                         </AvatarFallback>
                       </Avatar>
                       <span
-                        className={`absolute -bottom-1 -right-1 h-3.5 w-3.5 rounded-full border-2 border-background ${
-                          isOverloaded
-                            ? "bg-rose-500"
-                            : isAvailable
-                            ? "bg-emerald-500"
-                            : "bg-blue-500"
+                        className={`absolute -bottom-1 -right-1 h-3.5 w-3.5 rounded-full border-2 border-white dark:border-slate-900 transition-colors duration-200 ${
+                          isOnline
+                            ? "bg-green-500 shadow-xs"
+                            : "bg-slate-300 dark:bg-slate-600"
                         }`}
-                        title={staff.statusLabel}
+                        title={isOnline ? "Online" : "Offline"}
                       />
                     </div>
 
@@ -970,11 +1110,26 @@ export function ManagementClient({
                         </span>
                       </div>
 
+                      {/* Line 2.5: Live Active Task Indicator */}
+                      {activeTask && (activeTask.timerActive || activeTask.status === "On Progress") ? (
+                        <div className="text-xs text-green-600 dark:text-green-400 font-medium flex items-center gap-1 mt-1 min-w-0">
+                          <span className="animate-pulse shrink-0">🟢</span>
+                          <span className="shrink-0">Currently working on:</span>
+                          <span className="truncate" title={activeTask.title}>
+                            {activeTask.title}
+                          </span>
+                        </div>
+                      ) : isOnline ? (
+                        <span className="text-xs text-slate-500 dark:text-slate-400 mt-1 flex items-center gap-1">
+                          Status: Browsing Dashboard
+                        </span>
+                      ) : null}
+
                       {/* Line 3 (Metadata/Email) */}
                       {staff.email ? (
-                        <p className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1.5 mt-0.5">
+                        <p className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1.5 mt-0.5 truncate">
                           <Mail className="h-3.5 w-3.5 shrink-0 text-slate-400 dark:text-slate-500" />
-                          <span>{staff.email}</span>
+                          <span className="truncate">{staff.email}</span>
                         </p>
                       ) : (
                         <p className="text-xs text-slate-400 dark:text-slate-500 italic mt-0.5">

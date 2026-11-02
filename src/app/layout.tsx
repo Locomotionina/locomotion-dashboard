@@ -6,6 +6,7 @@ import { getCurrentUser } from "@/lib/auth";
 import { Navbar } from "@/components/Navbar";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { OnboardingModal } from "@/components/OnboardingModal";
+import { PresenceTracker } from "@/components/PresenceTracker";
 
 const geistSans = localFont({
   src: "./fonts/GeistVF.woff",
@@ -54,6 +55,7 @@ export default async function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} min-h-screen bg-background font-sans antialiased text-foreground flex flex-col relative overflow-x-hidden`}
       >
         <ThemeProvider>
+          {currentUser && <PresenceTracker user={currentUser} />}
           <Navbar user={currentUser} />
 
           <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8">

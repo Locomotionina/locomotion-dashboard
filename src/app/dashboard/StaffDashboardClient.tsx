@@ -615,6 +615,18 @@ export function StaffDashboardClient({
       if (res && !res.success) {
         alert(res.error || "Gagal memulai task.");
       } else {
+        const startedTask = activeTasks.find((t) => t.id === taskId);
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(
+            new CustomEvent("task-timer-state-changed", {
+              detail: {
+                taskId,
+                taskTitle: startedTask?.title || "Active Task",
+                timerActive: true,
+              },
+            })
+          );
+        }
         router.refresh();
       }
     } catch (err: any) {
@@ -651,6 +663,17 @@ export function StaffDashboardClient({
       if (res && !res.success) {
         alert(res.error || "Gagal menjeda timer.");
       } else {
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(
+            new CustomEvent("task-timer-state-changed", {
+              detail: {
+                taskId: null,
+                taskTitle: null,
+                timerActive: false,
+              },
+            })
+          );
+        }
         router.refresh();
       }
     } catch (err: any) {

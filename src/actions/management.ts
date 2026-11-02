@@ -2,6 +2,11 @@
 
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
+import {
+  getOnlineUserIds,
+  recordUserHeartbeat,
+  recordUserOffline,
+} from "@/lib/presenceStore";
 
 export interface StaffCapacitySummary {
   id: string;
@@ -21,6 +26,13 @@ export interface StaffCapacitySummary {
   capacityStatus: "OVERLOADED" | "OPTIMAL" | "AVAILABLE";
   statusLabel: string;
   statusBadgeVariant: "destructive" | "default" | "success" | "warning";
+  activeTask?: {
+    id: string;
+    title: string;
+    status: string;
+    timerActive: boolean;
+    projectName?: string | null;
+  } | null;
   tasks: {
     id: string;
     title: string;
@@ -29,6 +41,7 @@ export interface StaffCapacitySummary {
     priority: string;
     dueDate: Date | null;
     estimatedHours: number | null;
+    timerActive?: boolean;
     project: {
       id: string;
       name: string;
@@ -101,6 +114,15 @@ export async function getManagementOverviewData() {
                 name: true,
                 clientName: true,
                 code: true,
+              },
+            },
+            revisions: {
+              where: {
+                timerActive: true,
+              },
+              select: {
+                id: true,
+                timerActive: true,
               },
             },
           },
@@ -191,6 +213,26 @@ export async function getManagementOverviewData() {
       statusBadgeVariant = "success";
     }
 
+    // Active task detection: live stopwatch timer actively running takes highest precedence, or strictly task in 'On Progress' status
+    const timerRunningTask = staff.tasks.find(
+      (t) => t.timerActive || (t.revisions && t.revisions.length > 0)
+    );
+    const inProgressTask = inProgressTasks[0];
+    const activeTaskMatch = timerRunningTask || inProgressTask || null;
+
+    const activeTask = activeTaskMatch
+      ? {
+          id: activeTaskMatch.id,
+          title: activeTaskMatch.title,
+          status: activeTaskMatch.status,
+          timerActive: Boolean(
+            activeTaskMatch.timerActive ||
+              (activeTaskMatch.revisions && activeTaskMatch.revisions.length > 0)
+          ),
+          projectName: activeTaskMatch.project?.name || null,
+        }
+      : null;
+
     return {
       id: staff.id,
       name: staff.name,
@@ -209,6 +251,7 @@ export async function getManagementOverviewData() {
       capacityStatus,
       statusLabel,
       statusBadgeVariant,
+      activeTask,
       tasks: activeTasks.map((t) => ({
         id: t.id,
         title: t.title,
@@ -217,6 +260,7 @@ export async function getManagementOverviewData() {
         priority: t.priority,
         dueDate: t.dueDate,
         estimatedHours: t.estimatedHours,
+        timerActive: t.timerActive,
         project: t.project,
       })),
     };
@@ -1068,3 +1112,106 @@ ${capacityNarrative}`;
     },
   };
 }
+
+export interface ActiveStaffTelemetry {
+  onlineUserIds: string[];
+  activeTasks: Record<
+    string,
+    {
+      id: string;
+      title: string;
+      status: string;
+      timerActive: boolean;
+      projectName?: string | null;
+    } | null
+  >;
+}
+
+/**
+ * Fetches real-time staff telemetry (online user IDs and live active tasks)
+ * Optimized for low database load by filtering only active tasks and using indexes.
+ */
+export async function getLiveStaffTelemetryAction(): Promise<ActiveStaffTelemetry> {
+  const currentUser = await getCurrentUser();
+  if (!currentUser) {
+    return { onlineUserIds: [], activeTasks: {} };
+  }
+
+  // Fetch active tasks across the agency with indexed columns (high performance)
+  const tasks = await prisma.task.findMany({
+    where: {
+      OR: [
+        { timerActive: true },
+        { revisions: { some: { timerActive: true } } },
+        { status: "On Progress" },
+      ],
+      user: { isApproved: true },
+    },
+    select: {
+      id: true,
+      title: true,
+      status: true,
+      timerActive: true,
+      userId: true,
+      updatedAt: true,
+      revisions: {
+        where: { timerActive: true },
+        select: { id: true, timerActive: true },
+      },
+      project: { select: { name: true } },
+    },
+    orderBy: [{ timerActive: "desc" }, { updatedAt: "desc" }],
+  });
+
+  const activeTaskMap: ActiveStaffTelemetry["activeTasks"] = {};
+
+  for (const t of tasks) {
+    const isTimer = Boolean(t.timerActive || (t.revisions && t.revisions.length > 0));
+    const existing = activeTaskMap[t.userId];
+
+    // Running stopwatch timer takes highest precedence over mere "On Progress"
+    if (!existing || (!existing.timerActive && isTimer)) {
+      activeTaskMap[t.userId] = {
+        id: t.id,
+        title: t.title,
+        status: t.status,
+        timerActive: isTimer,
+        projectName: t.project?.name || null,
+      };
+    }
+  }
+
+  const onlineUserIds = getOnlineUserIds();
+
+  return {
+    onlineUserIds,
+    activeTasks: activeTaskMap,
+  };
+}
+
+/**
+ * Lightweight presence heartbeat called by active client sessions
+ */
+export async function heartbeatPresenceAction(activeTaskInfo?: {
+  taskId?: string;
+  taskTitle?: string;
+  timerActive?: boolean;
+}) {
+  const currentUser = await getCurrentUser();
+  if (!currentUser) return { success: false };
+
+  recordUserHeartbeat(currentUser.id, activeTaskInfo);
+  return { success: true };
+}
+
+/**
+ * Notifies the system when a user logs out or leaves
+ */
+export async function recordUserOfflineAction() {
+  const currentUser = await getCurrentUser();
+  if (!currentUser) return { success: false };
+
+  recordUserOffline(currentUser.id);
+  return { success: true };
+}
+
