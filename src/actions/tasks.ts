@@ -23,12 +23,24 @@ export async function createTaskAction(formData: FormData) {
   const dueDateStr = formData.get("dueDate") as string;
   const estimatedHours = parseFloat((formData.get("estimatedHours") as string) || "4");
   const assigneeId = (formData.get("assigneeId") as string) || "ME";
+  const rawReviewerIds = formData.get("reviewerIds") as string;
+  let reviewerIds: string[] = [];
+  if (rawReviewerIds) {
+    try {
+      const parsed = JSON.parse(rawReviewerIds);
+      reviewerIds = Array.isArray(parsed) ? parsed : [parsed];
+    } catch {
+      reviewerIds = rawReviewerIds.split(",").map((s) => s.trim()).filter(Boolean);
+    }
+  }
 
   if (!title || title.trim().length === 0) {
     return { success: false, error: "Task title is required." };
   }
 
   const targetUserId = assigneeId && assigneeId !== "ME" ? assigneeId : currentUser.id;
+  const primaryReviewer = reviewerIds.length > 0 ? reviewerIds[0] : null;
+  const reviewerIdsJson = reviewerIds.length > 0 ? JSON.stringify(reviewerIds) : null;
 
   const task = await prisma.task.create({
     data: {
@@ -41,6 +53,8 @@ export async function createTaskAction(formData: FormData) {
       estimatedHours: isNaN(estimatedHours) ? 4.0 : estimatedHours,
       userId: targetUserId,
       createdById: currentUser.id,
+      reviewerId: primaryReviewer,
+      reviewerIds: reviewerIdsJson,
       projectId: projectId === "NONE" || !projectId ? null : projectId,
       folderId,
       completedAt: status === "Done" ? new Date() : null,
@@ -219,10 +233,13 @@ export async function pauseTaskTimerAction(taskId: string) {
 /**
  * DELIVER TASK (Workflow Deliver Delegated Task):
  * Stops active timer, accumulates seconds, records previewDescription notes,
- * and transitions task to "In Review" status.
+ * sets optional multi-select reviewers, and transitions task to "In Review" status.
  */
 export async function deliverTaskAction(
-  input: string | FormData | { taskId: string; description?: string }
+  input:
+    | string
+    | FormData
+    | { taskId: string; description?: string; targetUserIds?: string[] }
 ) {
   try {
     const currentUser = await getCurrentUser();
@@ -230,15 +247,28 @@ export async function deliverTaskAction(
 
     let taskId: string;
     let description = "";
+    let targetUserIds: string[] = [];
 
     if (typeof input === "string") {
       taskId = input;
     } else if (input instanceof FormData) {
       taskId = input.get("taskId") as string;
       description = (input.get("description") as string) || "";
+      const rawTargets = input.get("targetUserIds") as string;
+      if (rawTargets) {
+        try {
+          const parsed = JSON.parse(rawTargets);
+          targetUserIds = Array.isArray(parsed) ? parsed : [parsed];
+        } catch {
+          targetUserIds = rawTargets.split(",").map((s) => s.trim()).filter(Boolean);
+        }
+      }
     } else if (input && typeof input === "object") {
       taskId = input.taskId;
       description = input.description || "";
+      if (Array.isArray(input.targetUserIds)) {
+        targetUserIds = input.targetUserIds;
+      }
     } else {
       return { success: false, error: "Data input tidak valid." };
     }
@@ -266,6 +296,17 @@ export async function deliverTaskAction(
       : 0;
     const elapsed = Math.max(0, isNaN(rawElapsed) ? 0 : rawElapsed);
 
+    let finalReviewerId = task.reviewerId;
+    let finalReviewerIds = task.reviewerIds;
+
+    if (targetUserIds.length > 0) {
+      finalReviewerId = targetUserIds[0];
+      finalReviewerIds = JSON.stringify(targetUserIds);
+    } else if (!finalReviewerId && task.createdById) {
+      finalReviewerId = task.createdById;
+      finalReviewerIds = JSON.stringify([task.createdById]);
+    }
+
     if (task.status === "Revision" || task.currentPhase === "REVISION") {
       const activeRevision = task.revisions[0];
       if (activeRevision) {
@@ -285,6 +326,8 @@ export async function deliverTaskAction(
         where: { id: taskId },
         data: {
           status: "In Review",
+          reviewerId: finalReviewerId,
+          reviewerIds: finalReviewerIds,
           previewDescription: description.trim() || task.previewDescription || null,
           totalSeconds: (task.totalSeconds || 0) + elapsed,
           timerActive: false,
@@ -296,6 +339,8 @@ export async function deliverTaskAction(
         where: { id: taskId },
         data: {
           status: "In Review",
+          reviewerId: finalReviewerId,
+          reviewerIds: finalReviewerIds,
           previewDescription: description.trim() || null,
           initialSeconds: (task.initialSeconds || 0) + elapsed,
           totalSeconds: (task.totalSeconds || 0) + elapsed,
@@ -305,17 +350,26 @@ export async function deliverTaskAction(
       });
     }
 
-    // Notifikasi terintegrasi untuk pembuat/pengirim task bahwa task sudah di-deliver
-    if (task.createdById && task.createdById !== currentUser.id) {
-      const snippet = description.trim().length > 60 ? description.trim().slice(0, 57) + "..." : description.trim();
-      await createNotification({
-        userId: task.createdById,
-        title: "Task Telah Di-Deliver 🚀",
-        message: `${currentUser.name} telah men-deliver task "${task.title}" untuk di-review${snippet ? `: "${snippet}"` : "."}`,
-        type: "TASK_DELIVERED",
-        link: "/dashboard?tab=delivered",
-        taskId: task.id,
-      }).catch((e) => console.error("Notification delivery failed:", e));
+    // Notifikasi terintegrasi untuk pembuat/pengirim task dan semua reviewer yang dipilih
+    const recipients = new Set<string>();
+    if (targetUserIds.length > 0) {
+      targetUserIds.forEach((id) => recipients.add(id));
+    } else if (task.createdById && task.createdById !== currentUser.id) {
+      recipients.add(task.createdById);
+    }
+
+    const snippet = description.trim().length > 60 ? description.trim().slice(0, 57) + "..." : description.trim();
+    for (const recipientId of Array.from(recipients)) {
+      if (recipientId !== currentUser.id) {
+        await createNotification({
+          userId: recipientId,
+          title: "Task Telah Di-Deliver 🚀",
+          message: `${currentUser.name} telah men-deliver task "${task.title}" untuk di-review${snippet ? `: "${snippet}"` : "."}`,
+          type: "TASK_DELIVERED",
+          link: "/dashboard?tab=delivered",
+          taskId: task.id,
+        }).catch((e) => console.error("Notification delivery failed:", e));
+      }
     }
 
     revalidatePath("/dashboard");
@@ -331,35 +385,54 @@ export async function deliverTaskAction(
 }
 
 /**
- * REQUEST PREVIEW WORKFLOW (Untuk Self-Assigned Tasks):
- * Mengajukan task ke Target User (Reviewer) beserta deskripsi request.
+ * REQUEST PREVIEW WORKFLOW (Flexible Routing / Multi-Select Reviewers):
+ * Mengajukan task ke satu atau beberapa Reviewer (Target Users) beserta deskripsi request.
  * Menghentikan timer yang berjalan dan mengubah status menjadi "In Review".
  */
 export async function requestTaskPreviewAction(
-  input: FormData | { taskId: string; targetUserId: string; description?: string }
+  input:
+    | FormData
+    | { taskId: string; targetUserId?: string; targetUserIds?: string[]; description?: string }
 ) {
   try {
     const currentUser = await getCurrentUser();
     if (!currentUser) return { success: false, error: "Unauthorized" };
 
     let taskId: string;
-    let targetUserId: string;
+    let targetUserIds: string[] = [];
     let description = "";
 
     if (input instanceof FormData) {
       taskId = input.get("taskId") as string;
-      targetUserId = input.get("targetUserId") as string;
+      const rawTargets = input.get("targetUserIds") as string;
+      const singleTarget = input.get("targetUserId") as string;
+      if (rawTargets) {
+        try {
+          const parsed = JSON.parse(rawTargets);
+          targetUserIds = Array.isArray(parsed) ? parsed : [parsed];
+        } catch {
+          targetUserIds = rawTargets.split(",").map((s) => s.trim()).filter(Boolean);
+        }
+      } else if (singleTarget) {
+        targetUserIds = [singleTarget];
+      }
       description = (input.get("description") as string) || "";
     } else if (input && typeof input === "object") {
       taskId = input.taskId;
-      targetUserId = input.targetUserId;
+      if (Array.isArray(input.targetUserIds) && input.targetUserIds.length > 0) {
+        targetUserIds = input.targetUserIds;
+      } else if (input.targetUserId) {
+        targetUserIds = [input.targetUserId];
+      }
       description = input.description || "";
     } else {
       return { success: false, error: "Data input tidak valid." };
     }
 
     if (!taskId) return { success: false, error: "Task ID diperlukan." };
-    if (!targetUserId) return { success: false, error: "Target User (Reviewer) harus dipilih." };
+    if (!targetUserIds || targetUserIds.length === 0) {
+      return { success: false, error: "Minimal pilih satu Reviewer (Target User)." };
+    }
 
     const task = await prisma.task.findUnique({
       where: { id: taskId },
@@ -368,7 +441,8 @@ export async function requestTaskPreviewAction(
     if (!task) return { success: false, error: "Task tidak ditemukan." };
 
     // Reviewer tidak boleh pelaksana task itu sendiri
-    if (targetUserId === task.userId) {
+    targetUserIds = targetUserIds.filter((id) => id !== task.userId);
+    if (targetUserIds.length === 0) {
       return { success: false, error: "Tidak dapat menunjuk pelaksana task sebagai reviewer." };
     }
 
@@ -380,8 +454,8 @@ export async function requestTaskPreviewAction(
       return { success: false, error: "Akses ditolak: Hanya pelaksana task yang dapat mengajukan preview." };
     }
 
-    const reviewer = await prisma.user.findUnique({ where: { id: targetUserId } });
-    if (!reviewer) return { success: false, error: "Reviewer tidak ditemukan." };
+    const primaryReviewerId = targetUserIds[0];
+    const reviewerIdsJson = JSON.stringify(targetUserIds);
 
     const now = new Date();
     const rawElapsed = task.timerActive && task.timerStartedAt
@@ -408,7 +482,8 @@ export async function requestTaskPreviewAction(
         where: { id: taskId },
         data: {
           status: "In Review",
-          reviewerId: targetUserId,
+          reviewerId: primaryReviewerId,
+          reviewerIds: reviewerIdsJson,
           previewDescription: description.trim() || null,
           totalSeconds: (task.totalSeconds || 0) + elapsed,
           timerActive: false,
@@ -420,7 +495,8 @@ export async function requestTaskPreviewAction(
         where: { id: taskId },
         data: {
           status: "In Review",
-          reviewerId: targetUserId,
+          reviewerId: primaryReviewerId,
+          reviewerIds: reviewerIdsJson,
           previewDescription: description.trim() || null,
           initialSeconds: (task.initialSeconds || 0) + elapsed,
           totalSeconds: (task.totalSeconds || 0) + elapsed,
@@ -430,16 +506,18 @@ export async function requestTaskPreviewAction(
       });
     }
 
-    // Notifikasi real-time untuk Target User (Reviewer)
+    // Notifikasi real-time untuk setiap Reviewer yang dipilih
     const snippet = description.trim().length > 60 ? description.trim().slice(0, 57) + "..." : description.trim();
-    await createNotification({
-      userId: targetUserId,
-      title: "Permintaan Preview Task 🔍",
-      message: `${currentUser.name} meminta Anda me-review task "${task.title}"${snippet ? `: "${snippet}"` : "."}`,
-      type: "TASK_DELIVERED",
-      link: `/dashboard?tab=reviews&taskId=${task.id}`,
-      taskId: task.id,
-    }).catch((e) => console.error("Notification creation failed:", e));
+    for (const rId of targetUserIds) {
+      await createNotification({
+        userId: rId,
+        title: "Permintaan Preview Task 🔍",
+        message: `${currentUser.name} meminta Anda me-review task "${task.title}"${snippet ? `: "${snippet}"` : "."}`,
+        type: "TASK_DELIVERED",
+        link: `/dashboard?tab=reviews&taskId=${task.id}`,
+        taskId: task.id,
+      }).catch((e) => console.error("Notification creation failed:", e));
+    }
 
     revalidatePath("/dashboard");
     revalidatePath("/management");
@@ -451,6 +529,76 @@ export async function requestTaskPreviewAction(
   } catch (err: any) {
     console.error("Error in requestTaskPreviewAction:", err);
     return { success: false, error: err.message || "Gagal mengajukan preview task." };
+  }
+}
+
+/**
+ * PULL-BACK REVISION WORKFLOW ("Mulai Revisi"):
+ * Mengembalikan task dari status "In Review" kembali ke "On Progress",
+ * membuka kunci stopwatch timer dan langsung mengaktifkan timer pengerjaan revisi,
+ * sehingga user dapat segera mengerjakan revisi parsial tanpa menunggu seluruh reviewer selesai.
+ * Catatan/feedback revisi sebelumnya tetap tersimpan utuh dan dapat dilihat sebagai acuan.
+ */
+export async function pullBackToRevisionAction(taskId: string) {
+  try {
+    const currentUser = await getCurrentUser();
+    if (!currentUser) return { success: false, error: "Unauthorized" };
+
+    const task = await prisma.task.findUnique({
+      where: { id: taskId },
+      include: { revisions: { orderBy: { round: "desc" }, take: 1 } },
+    });
+
+    if (!task) return { success: false, error: "Task tidak ditemukan." };
+
+    if (
+      currentUser.role !== "MANAGEMENT" &&
+      currentUser.role !== "ADMIN" &&
+      task.userId !== currentUser.id
+    ) {
+      return {
+        success: false,
+        error: "Akses ditolak: Hanya pelaksana task yang dapat menarik kembali task untuk revisi.",
+      };
+    }
+
+    const now = new Date();
+
+    // Jika terdapat ronde revisi aktif yang belum disetujui, aktifkan status dan timernya
+    const activeRevision = task.revisions[0];
+    if (activeRevision && activeRevision.status !== "APPROVED") {
+      await prisma.taskRevision.update({
+        where: { id: activeRevision.id },
+        data: {
+          status: "IN_PROGRESS",
+          timerActive: true,
+          timerStartedAt: now,
+        },
+      });
+    }
+
+    // Ubah status dari "In Review" kembali menjadi "On Progress", set phase ke REVISION, dan buka kunci timer
+    await prisma.task.update({
+      where: { id: taskId },
+      data: {
+        status: "On Progress",
+        currentPhase: "REVISION",
+        timerActive: true,
+        timerStartedAt: now,
+        completedAt: null,
+      },
+    });
+
+    revalidatePath("/dashboard");
+    revalidatePath("/management");
+    if (task.projectId) {
+      revalidatePath(`/projects/${task.projectId}`);
+    }
+
+    return { success: true };
+  } catch (err: any) {
+    console.error("Error in pullBackToRevisionAction:", err);
+    return { success: false, error: err.message || "Gagal memulai revisi." };
   }
 }
 
@@ -580,12 +728,14 @@ export async function requestRevisionAction(
     const task = await prisma.task.findUnique({ where: { id: taskId } });
     if (!task) return { success: false, error: "Task not found" };
 
+    const isMultiReviewer = task.reviewerIds ? task.reviewerIds.includes(currentUser.id) : false;
     // Creator, management, admin, or assigned reviewer can request revisions
     if (
       currentUser.role !== "MANAGEMENT" &&
       currentUser.role !== "ADMIN" &&
       task.createdById !== currentUser.id &&
       task.reviewerId !== currentUser.id &&
+      !isMultiReviewer &&
       task.userId !== currentUser.id
     ) {
       return { success: false, error: "Unauthorized to request revision" };
@@ -658,11 +808,13 @@ export async function approveTaskAction(taskId: string) {
     });
     if (!task) return { success: false, error: "Task not found" };
 
+    const isMultiReviewer = task.reviewerIds ? task.reviewerIds.includes(currentUser.id) : false;
     if (
       currentUser.role !== "MANAGEMENT" &&
       currentUser.role !== "ADMIN" &&
       task.createdById !== currentUser.id &&
       task.reviewerId !== currentUser.id &&
+      !isMultiReviewer &&
       task.userId !== currentUser.id
     ) {
       return { success: false, error: "Unauthorized to approve this task" };
@@ -1165,7 +1317,10 @@ export async function getStaffDashboardData(targetUserId?: string) {
     // 4. "Review Requests" (Tasks where this user is assigned as Target User / Reviewer)
     prisma.task.findMany({
       where: {
-        reviewerId: userId,
+        OR: [
+          { reviewerId: userId },
+          { reviewerIds: { contains: userId } },
+        ],
       },
       include: {
         user: {

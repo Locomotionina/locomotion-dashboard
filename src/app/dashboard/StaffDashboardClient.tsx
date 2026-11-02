@@ -14,6 +14,7 @@ import {
   requestRevisionAction,
   approveTaskAction,
   requestTaskPreviewAction,
+  pullBackToRevisionAction,
   completeTaskAction,
   createFolderAction,
   deleteFolderAction,
@@ -90,6 +91,7 @@ import { formatDate, formatRelativeDays } from "@/lib/utils";
 import { StaffReportModal } from "@/components/StaffReportModal";
 import { TaskTimerPill } from "@/components/TaskTimerPill";
 import { TaskRecapBreakdown } from "@/components/TaskRecapBreakdown";
+import { MultiSelectReviewers } from "@/components/MultiSelectReviewers";
 
 interface TaskRevisionItem {
   id: string;
@@ -130,6 +132,7 @@ interface TaskItem {
   userId?: string;
   createdById?: string | null;
   reviewerId?: string | null;
+  reviewerIds?: string | null;
   previewDescription?: string | null;
   project: {
     id: string;
@@ -179,6 +182,7 @@ export interface ReviewRequestItem {
   createdAt: Date | string;
   updatedAt: Date | string;
   reviewerId?: string | null;
+  reviewerIds?: string | null;
   previewDescription?: string | null;
   user: {
     id: string;
@@ -234,6 +238,8 @@ interface DelegatedTaskItem {
   revisions: TaskRevisionItem[];
   createdAt: Date;
   updatedAt: Date;
+  reviewerId?: string | null;
+  reviewerIds?: string | null;
   previewDescription?: string | null;
   user: {
     id: string;
@@ -433,16 +439,21 @@ export function StaffDashboardClient({
   const [activeTab, setActiveTab] = useState("active");
   const [highlightedTaskId, setHighlightedTaskId] = useState<string | null>(null);
 
+  // Create Task Reviewers State
+  const [createReviewerIds, setCreateReviewerIds] = useState<string[]>([]);
+
   // Request Preview Modal State
   const [previewModalOpen, setPreviewModalOpen] = useState(false);
   const [previewModalTask, setPreviewModalTask] = useState<TaskItem | null>(null);
   const [previewTargetUserId, setPreviewTargetUserId] = useState<string>("");
+  const [previewTargetUserIds, setPreviewTargetUserIds] = useState<string[]>([]);
   const [previewDescription, setPreviewDescription] = useState<string>("");
   const [previewSubmitting, setPreviewSubmitting] = useState(false);
 
   // Deliver Modal State (Delegated Tasks)
   const [deliverModalOpen, setDeliverModalOpen] = useState(false);
   const [deliverModalTask, setDeliverModalTask] = useState<TaskItem | null>(null);
+  const [deliverTargetUserIds, setDeliverTargetUserIds] = useState<string[]>([]);
   const [deliverDescription, setDeliverDescription] = useState<string>("");
   const [deliverSubmitting, setDeliverSubmitting] = useState(false);
 
@@ -558,6 +569,7 @@ export function StaffDashboardClient({
       setTaskOutputTypeOption("Thumbnail");
       setCustomOutputType("");
       setCreateFolderIdForTask("NONE");
+      setCreateReviewerIds([]);
       router.refresh();
     }
   };
@@ -703,6 +715,21 @@ export function StaffDashboardClient({
 
   const handleOpenDeliverModal = (task: TaskItem) => {
     setDeliverModalTask(task);
+    let initialSelected: string[] = [];
+    if (task.reviewerIds) {
+      try {
+        const parsed = JSON.parse(task.reviewerIds);
+        if (Array.isArray(parsed) && parsed.length > 0) initialSelected = parsed;
+      } catch {
+        // ignore
+      }
+    }
+    if (initialSelected.length === 0 && task.reviewerId) {
+      initialSelected = [task.reviewerId];
+    } else if (initialSelected.length === 0 && task.createdById && task.createdById !== task.userId) {
+      initialSelected = [task.createdById];
+    }
+    setDeliverTargetUserIds(initialSelected);
     setDeliverDescription(task.previewDescription || "");
     setDeliverModalOpen(true);
   };
@@ -719,6 +746,7 @@ export function StaffDashboardClient({
     try {
       const res = await deliverTaskAction({
         taskId: deliverModalTask.id,
+        targetUserIds: deliverTargetUserIds.length > 0 ? deliverTargetUserIds : undefined,
         description: deliverDescription.trim(),
       });
       if (res && !res.success) {
@@ -727,6 +755,7 @@ export function StaffDashboardClient({
         setDeliverModalOpen(false);
         setDeliverModalTask(null);
         setDeliverDescription("");
+        setDeliverTargetUserIds([]);
         router.refresh();
       }
     } catch (err: any) {
@@ -784,9 +813,19 @@ export function StaffDashboardClient({
 
   const handleOpenRequestPreview = (task: TaskItem) => {
     setPreviewModalTask(task);
-    const otherStaff = (staffMembers || []).filter((m) => m.id !== task.userId);
-    const defaultReviewerId = task.reviewerId || (otherStaff.length > 0 ? otherStaff[0].id : "");
-    setPreviewTargetUserId(defaultReviewerId);
+    let initialSelected: string[] = [];
+    if (task.reviewerIds) {
+      try {
+        const parsed = JSON.parse(task.reviewerIds);
+        if (Array.isArray(parsed) && parsed.length > 0) initialSelected = parsed;
+      } catch {
+        // ignore
+      }
+    }
+    if (initialSelected.length === 0 && task.reviewerId) {
+      initialSelected = [task.reviewerId];
+    }
+    setPreviewTargetUserIds(initialSelected);
     setPreviewDescription(task.previewDescription || "");
     setPreviewModalOpen(true);
   };
@@ -794,8 +833,8 @@ export function StaffDashboardClient({
   const handleSubmitRequestPreview = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!previewModalTask) return;
-    if (!previewTargetUserId) {
-      alert("Pilih Target User (Reviewer) terlebih dahulu.");
+    if (!previewTargetUserIds || previewTargetUserIds.length === 0) {
+      alert("Pilih minimal satu Reviewer (Target User).");
       return;
     }
 
@@ -803,7 +842,7 @@ export function StaffDashboardClient({
     try {
       const res = await requestTaskPreviewAction({
         taskId: previewModalTask.id,
-        targetUserId: previewTargetUserId,
+        targetUserIds: previewTargetUserIds,
         description: previewDescription.trim(),
       });
 
@@ -811,6 +850,7 @@ export function StaffDashboardClient({
         setPreviewModalOpen(false);
         setPreviewModalTask(null);
         setPreviewDescription("");
+        setPreviewTargetUserIds([]);
         router.refresh();
       } else {
         alert(res?.error || "Gagal mengajukan preview task.");
@@ -820,6 +860,35 @@ export function StaffDashboardClient({
       alert("Terjadi kesalahan sistem saat mengajukan preview task: " + (err?.message || err));
     } finally {
       setPreviewSubmitting(false);
+    }
+  };
+
+  /**
+   * PULL-BACK REVISION (Mulai Revisi):
+   * Mengembalikan task In Review ke On Progress dan membuka stopwatch timer
+   * agar pelaksana task dapat segera mengerjakan revisi parsial.
+   */
+  const handlePullBackRevision = async (taskId: string) => {
+    setActionLoadingId(taskId);
+    try {
+      const res = await pullBackToRevisionAction(taskId);
+      if (res && res.success) {
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(
+            new CustomEvent("task-timer-state-changed", {
+              detail: { taskId, timerActive: true },
+            })
+          );
+        }
+        router.refresh();
+      } else {
+        alert(res?.error || "Gagal menarik kembali task untuk revisi.");
+      }
+    } catch (err: any) {
+      console.error("Error pulling back task for revision:", err);
+      alert("Terjadi kesalahan sistem saat memulai revisi: " + (err?.message || err));
+    } finally {
+      setActionLoadingId(null);
     }
   };
 
@@ -1376,6 +1445,24 @@ export function StaffDashboardClient({
                   </select>
                   <p className="text-[11px] text-muted-foreground">
                     Assigning to another specialist will place this deliverable in their workspace and track it in your <strong>&ldquo;Deliver by Me&rdquo;</strong> tab.
+                  </p>
+                </div>
+
+                {/* Reviewers / Parallel Evaluators Selection */}
+                <div className="space-y-1.5">
+                  <Label className="text-purple-600 dark:text-purple-400 font-semibold flex items-center gap-1.5">
+                    <Eye className="h-3.5 w-3.5" />
+                    <span>Reviewers / Evaluators (Parallel Review)</span>
+                  </Label>
+                  <MultiSelectReviewers
+                    options={staffMembers || []}
+                    selectedIds={createReviewerIds}
+                    onChange={setCreateReviewerIds}
+                    placeholder="Pilih satu atau beberapa reviewer (cth: Head Creative, Art Director, CEO)..."
+                    name="reviewerIds"
+                  />
+                  <p className="text-[11px] text-muted-foreground">
+                    Pilih rekan tim untuk review paralel sebelum hasil kerja disetujui.
                   </p>
                 </div>
 
@@ -2356,13 +2443,57 @@ export function StaffDashboardClient({
                           </div>
                         )}
 
-                        {/* Reviewer indicator for preview requests */}
-                        {task.reviewer && (
-                          <div className="inline-flex items-center gap-1.5 text-xs text-purple-700 dark:text-purple-300 bg-purple-500/10 px-2 py-0.5 rounded-lg border border-purple-500/25">
-                            <Eye className="h-3 w-3" />
-                            <span>Reviewer Preview: <strong className="text-foreground">{task.reviewer.name}</strong></span>
-                          </div>
-                        )}
+                        {/* Reviewer indicator for preview requests (Multi-reviewer support) */}
+                        {(() => {
+                          let revIds: string[] = [];
+                          if (task.reviewerIds) {
+                            try {
+                              const parsed = JSON.parse(task.reviewerIds);
+                              if (Array.isArray(parsed)) revIds = parsed;
+                            } catch {
+                              // ignore
+                            }
+                          }
+                          if (revIds.length === 0 && task.reviewerId) {
+                            revIds = [task.reviewerId];
+                          }
+
+                          const assignedReviewers = revIds
+                            .map((rId) => (staffMembers || []).find((s) => s.id === rId))
+                            .filter(Boolean) as StaffMemberOption[];
+
+                          if (assignedReviewers.length === 0 && task.reviewer) {
+                            assignedReviewers.push(task.reviewer);
+                          }
+
+                          if (assignedReviewers.length === 0) return null;
+
+                          return (
+                            <div className="flex items-center gap-1.5 flex-wrap text-xs text-purple-700 dark:text-purple-300 bg-purple-500/10 px-2.5 py-1 rounded-xl border border-purple-500/25 min-w-0 max-w-full">
+                              <Eye className="h-3.5 w-3.5 shrink-0" />
+                              <span className="font-semibold shrink-0">
+                                Reviewer{assignedReviewers.length > 1 ? `s (${assignedReviewers.length})` : ""}:
+                              </span>
+                              <div className="flex items-center gap-1 flex-wrap min-w-0">
+                                {assignedReviewers.map((rev) => (
+                                  <span
+                                    key={rev.id}
+                                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-card/90 text-[10px] font-semibold text-foreground border border-purple-500/20 truncate max-w-[120px]"
+                                    title={`${rev.name} (${rev.position || rev.department})`}
+                                  >
+                                    <Avatar className="h-3.5 w-3.5 shrink-0">
+                                      <AvatarImage src={rev.avatarUrl || ""} />
+                                      <AvatarFallback className="text-[7px] font-bold bg-purple-500/20 text-purple-600">
+                                        {rev.name[0]}
+                                      </AvatarFallback>
+                                    </Avatar>
+                                    <span className="truncate">{rev.name}</span>
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          );
+                        })()}
                       </div>
 
                       {/* Card Body: Brief & Instruksi Kerja (Pusat Perhatian Utama) */}
@@ -2431,41 +2562,67 @@ export function StaffDashboardClient({
                           )}
                         </div>
 
-                        {/* REVISION ALERT BOX (If in Revision state) */}
-                        {isRevisionPhase && activeRevision && (
-                          <div className="rounded-xl border border-rose-500/35 bg-rose-500/10 p-3.5 space-y-2 animate-fade-up">
-                            <div className="flex items-center justify-between text-xs font-bold text-rose-700 dark:text-rose-300">
-                              <span className="flex items-center gap-1.5">
-                                <AlertTriangle className="h-4 w-4" />
-                                <span>Catatan Revisi #{activeRevision.round}</span>
-                              </span>
-                              <Badge variant="destructive" className="text-[10px] uppercase font-bold">Harap Dikerjakan</Badge>
-                            </div>
-                            <p className="text-xs sm:text-sm text-foreground bg-card/90 p-3 rounded-lg border border-rose-500/20 font-medium whitespace-pre-line">
-                              &ldquo;{activeRevision.feedback}&rdquo;
-                            </p>
-                          </div>
-                        )}
+                        {/* REVISION ALERT BOX (If in Revision state or has revision feedback) */}
+                        {(() => {
+                          const latestRev =
+                            task.revisions && task.revisions.length > 0
+                              ? task.revisions[task.revisions.length - 1]
+                              : null;
+                          const revToShow = activeRevision || latestRev;
+
+                          if ((isRevisionPhase || Boolean(task.revisions?.length)) && revToShow) {
+                            return (
+                              <div className="rounded-xl border border-rose-500/35 bg-rose-500/10 p-3.5 space-y-2 animate-fade-up">
+                                <div className="flex items-center justify-between text-xs font-bold text-rose-700 dark:text-rose-300">
+                                  <span className="flex items-center gap-1.5">
+                                    <AlertTriangle className="h-4 w-4 shrink-0" />
+                                    <span>Catatan Revisi #{revToShow.round}</span>
+                                  </span>
+                                  <Badge variant="destructive" className="text-[10px] uppercase font-bold shrink-0">
+                                    {isReviewPhase ? "Dalam Review" : "Harap Dikerjakan"}
+                                  </Badge>
+                                </div>
+                                <p className="text-xs sm:text-sm text-foreground bg-card/90 p-3 rounded-lg border border-rose-500/20 font-medium whitespace-pre-line">
+                                  &ldquo;{revToShow.feedback}&rdquo;
+                                </p>
+                              </div>
+                            );
+                          }
+                          return null;
+                        })()}
 
                         {/* IN REVIEW BANNER */}
                         {isReviewPhase && (
                           <div className="rounded-xl border border-purple-500/30 bg-purple-500/10 p-3.5 space-y-2 text-xs text-purple-700 dark:text-purple-300 animate-fade-up">
-                            <div className="flex items-center justify-between font-bold">
-                              <span className="flex items-center gap-1.5">
-                                <Eye className="h-4 w-4" />
-                                <span>
+                            <div className="flex items-center justify-between font-bold gap-2">
+                              <span className="flex items-center gap-1.5 truncate">
+                                <Eye className="h-4 w-4 shrink-0" />
+                                <span className="truncate">
                                   {isSelfAssigned && task.reviewer
                                     ? `Permintaan Preview Diajukan ke ${task.reviewer.name}`
-                                    : "Telah di-Deliver! Menunggu review & persetujuan pembuat task."}
+                                    : "Telah di-Deliver! Menunggu review & persetujuan."}
                                 </span>
                               </span>
-                              <Badge variant="purple" className="text-[10px]">In Review</Badge>
+                              <Badge variant="purple" className="text-[10px] shrink-0">In Review</Badge>
                             </div>
                             {task.previewDescription && (
                               <p className="text-xs bg-card/80 p-2.5 rounded-lg border border-purple-500/20 text-foreground font-medium italic whitespace-pre-line">
                                 &ldquo;{task.previewDescription}&rdquo;
                               </p>
                             )}
+                          </div>
+                        )}
+
+                        {/* PREVIEW DESCRIPTION NOTE (Persisted when in Revision or On Progress after pull-back) */}
+                        {!isReviewPhase && task.previewDescription && task.currentPhase === "REVISION" && (
+                          <div className="rounded-xl border border-purple-500/25 bg-purple-500/[0.04] p-3 space-y-1 text-xs">
+                            <div className="flex items-center gap-1.5 font-bold text-purple-700 dark:text-purple-300">
+                              <MessageSquare className="h-3.5 w-3.5 shrink-0" />
+                              <span>Catatan Request Preview Terakhir:</span>
+                            </div>
+                            <p className="text-foreground/90 font-medium italic whitespace-pre-line">
+                              &ldquo;{task.previewDescription}&rdquo;
+                            </p>
                           </div>
                         )}
 
@@ -2699,13 +2856,33 @@ export function StaffDashboardClient({
 
                         {/* State 4: In Review */}
                         {task.status === "In Review" && (
-                          <div className="flex items-center gap-1.5 text-xs font-semibold text-purple-700 dark:text-purple-300 bg-purple-500/10 px-3 py-1.5 rounded-xl border border-purple-500/20 shrink-0">
-                            <Eye className="h-3.5 w-3.5" />
-                            <span>
-                              {isSelfAssigned && task.reviewer
-                                ? `Reviewer: ${task.reviewer.name}`
-                                : "Menunggu Review"}
-                            </span>
+                          <div className="flex items-center justify-between gap-2 flex-wrap w-full min-w-0 pt-1">
+                            <div className="flex items-center gap-1.5 text-xs font-semibold text-purple-700 dark:text-purple-300 bg-purple-500/10 px-3 py-1.5 rounded-xl border border-purple-500/20 min-w-0 max-w-full">
+                              <Eye className="h-3.5 w-3.5 shrink-0" />
+                              <span className="truncate">
+                                {isSelfAssigned && task.reviewer
+                                  ? `Reviewer: ${task.reviewer.name}`
+                                  : "Menunggu Review"}
+                              </span>
+                            </div>
+
+                            {/* "Mulai Revisi" (Pull-Back) action button for assigned specialist */}
+                            {(!task.userId || task.userId === user.id) && (
+                              <Button
+                                size="sm"
+                                disabled={isLoading}
+                                onClick={() => handlePullBackRevision(task.id)}
+                                className="shrink-0 whitespace-nowrap min-w-fit gap-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 dark:bg-amber-600 dark:hover:bg-amber-700 text-white font-semibold text-xs shadow-sm h-8 px-3.5 border-0 transition-transform active:scale-95 ml-auto"
+                                title="Tarik kembali task ke On Progress dan buka stopwatch timer untuk segera mengerjakan revisi"
+                              >
+                                {isLoading ? (
+                                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                ) : (
+                                  <RotateCcw className="h-3.5 w-3.5" />
+                                )}
+                                <span>Mulai Revisi</span>
+                              </Button>
+                            )}
                           </div>
                         )}
 
@@ -4616,30 +4793,26 @@ export function StaffDashboardClient({
                 )}
               </div>
 
-              {/* Field 1: User selection dropdown to assign a "Target User" (the reviewer) */}
+              {/* Field 1: User selection dropdown to assign "Target Users" (the reviewers) */}
               <div className="space-y-1.5">
-                <Label htmlFor="previewTargetUserId" className="text-xs font-bold text-foreground flex items-center gap-1">
-                  <span>Target User (Reviewer)</span>
-                  <span className="text-rose-500">*</span>
+                <Label className="text-xs font-bold text-foreground flex items-center justify-between">
+                  <span className="flex items-center gap-1">
+                    <span>Target Users (Reviewers)</span>
+                    <span className="text-rose-500">*</span>
+                  </span>
+                  <span className="text-[10px] text-purple-600 dark:text-purple-400 font-normal">
+                    Multi-select paralel review
+                  </span>
                 </Label>
-                <select
-                  id="previewTargetUserId"
-                  value={previewTargetUserId}
-                  onChange={(e) => setPreviewTargetUserId(e.target.value)}
-                  required
-                  className="flex h-10 w-full rounded-xl border border-input bg-card px-3 py-1 text-xs font-medium shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-500/50 text-foreground"
-                >
-                  <option value="" disabled>-- Pilih Reviewer (Target User) --</option>
-                  {(staffMembers || [])
-                    .filter((m) => m.id !== previewModalTask.userId)
-                    .map((member) => (
-                      <option key={member.id} value={member.id}>
-                        {member.name} — {member.position || member.department} ({member.department})
-                      </option>
-                    ))}
-                </select>
+                <MultiSelectReviewers
+                  options={staffMembers || []}
+                  selectedIds={previewTargetUserIds}
+                  onChange={setPreviewTargetUserIds}
+                  excludeUserId={previewModalTask.userId}
+                  placeholder="Pilih satu atau beberapa reviewer (cth: Head Creative, Art Director, CEO)..."
+                />
                 <p className="text-[10px] text-muted-foreground">
-                  Permintaan review ini akan diteruskan langsung ke dashboard Target User yang dipilih.
+                  Permintaan review ini akan diteruskan langsung ke dashboard setiap Reviewer yang dipilih secara paralel.
                 </p>
               </div>
 
@@ -4671,11 +4844,11 @@ export function StaffDashboardClient({
                 </Button>
                 <Button
                   type="submit"
-                  disabled={previewSubmitting || !previewTargetUserId}
+                  disabled={previewSubmitting || previewTargetUserIds.length === 0}
                   className="gap-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-semibold text-xs border-0 shadow-sm"
                 >
                   {previewSubmitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
-                  <span>Kirim Request Preview</span>
+                  <span>Kirim Request Preview{previewTargetUserIds.length > 0 ? ` (${previewTargetUserIds.length})` : ""}</span>
                 </Button>
               </DialogFooter>
             </form>
@@ -4718,6 +4891,28 @@ export function StaffDashboardClient({
                     Pemberi Tugas: {deliverModalTask.createdBy.name} ({deliverModalTask.createdBy.department})
                   </p>
                 )}
+              </div>
+
+              {/* Field: Deliver To Reviewers (Multi-Select) */}
+              <div className="space-y-1.5">
+                <Label className="text-xs font-bold text-foreground flex items-center justify-between">
+                  <span>Deliver To (Reviewers)</span>
+                  <span className="text-[10px] text-blue-600 dark:text-blue-400 font-normal">
+                    Pilih reviewer untuk verifikasi paralel
+                  </span>
+                </Label>
+                <MultiSelectReviewers
+                  options={staffMembers || []}
+                  selectedIds={deliverTargetUserIds}
+                  onChange={setDeliverTargetUserIds}
+                  excludeUserId={deliverModalTask.userId}
+                  placeholder="Pilih reviewer (cth: Head Creative, Art Director, CEO)..."
+                />
+                <p className="text-[10px] text-muted-foreground">
+                  {deliverTargetUserIds.length === 0 && deliverModalTask.createdBy
+                    ? `Default dikirim ke pembuat task: ${deliverModalTask.createdBy.name}`
+                    : `Deliverable akan dikirimkan ke ${deliverTargetUserIds.length} reviewer secara paralel.`}
+                </p>
               </div>
 
               {/* Field: Request Description / Catatan Hasil Kerja */}
