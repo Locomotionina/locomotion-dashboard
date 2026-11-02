@@ -26,13 +26,14 @@ async function resetProjectsAndTasks() {
     const delProjects = await tx.project.deleteMany({});
     console.log(`✓ Deleted ${delProjects.count} projects.`);
 
-    // 6. Delete task-related notifications
-    const delNotifications = await tx.notification.deleteMany({
-      where: {
-        taskId: { not: null },
-      },
-    });
-    console.log(`✓ Deleted ${delNotifications.count} task-related notifications.`);
+    // 6. Delete all notifications
+    const delNotifications = await tx.notification.deleteMany({});
+    console.log(`✓ Deleted ${delNotifications.count} notifications.`);
+
+    // 7. Delete all pending profile & password requests
+    const delProfileRequests = await tx.profileUpdateRequest.deleteMany({});
+    const delPasswordRequests = await tx.passwordResetRequest.deleteMany({});
+    console.log(`✓ Deleted ${delProfileRequests.count} profile update requests and ${delPasswordRequests.count} password requests.`);
 
     return {
       delRevisions: delRevisions.count,
@@ -41,6 +42,8 @@ async function resetProjectsAndTasks() {
       delDeliverables: delDeliverables.count,
       delProjects: delProjects.count,
       delNotifications: delNotifications.count,
+      delProfileRequests: delProfileRequests.count,
+      delPasswordRequests: delPasswordRequests.count,
     };
   });
 
