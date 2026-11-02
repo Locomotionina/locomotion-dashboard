@@ -98,6 +98,8 @@ interface TaskRevisionItem {
   id: string;
   round: number;
   feedback: string;
+  authorId?: string | null;
+  authorName?: string | null;
   seconds: number;
   timerActive: boolean;
   timerStartedAt: Date | string | null;
@@ -249,6 +251,20 @@ interface DelegatedTaskItem {
     department: string;
     avatarUrl: string | null;
   };
+  createdBy?: {
+    id: string;
+    name: string;
+    position: string;
+    department: string;
+    avatarUrl: string | null;
+  } | null;
+  reviewer?: {
+    id: string;
+    name: string;
+    position: string;
+    department: string;
+    avatarUrl: string | null;
+  } | null;
   project: {
     id: string;
     name: string;
@@ -2951,31 +2967,51 @@ export function StaffDashboardClient({
 
                         {/* REVISION ALERT BOX (If in Revision state or has revision feedback) */}
                         {(() => {
-                          const latestRev =
-                            task.revisions && task.revisions.length > 0
-                              ? task.revisions[task.revisions.length - 1]
-                              : null;
-                          const revToShow = activeRevision || latestRev;
+                          const targetRound =
+                            task.currentRevisionRound > 0
+                              ? task.currentRevisionRound
+                              : (task.revisions && task.revisions.length > 0
+                                  ? task.revisions[task.revisions.length - 1].round
+                                  : 0);
 
-                          if ((isRevisionPhase || Boolean(task.revisions?.length)) && revToShow) {
-                            return (
-                              <div className="rounded-xl border border-rose-500/35 bg-rose-500/10 p-3.5 space-y-2 animate-fade-up">
-                                <div className="flex items-center justify-between text-xs font-bold text-rose-700 dark:text-rose-300">
-                                  <span className="flex items-center gap-1.5">
-                                    <AlertTriangle className="h-4 w-4 shrink-0" />
-                                    <span>Catatan Revisi #{revToShow.round}</span>
-                                  </span>
-                                  <Badge variant="destructive" className="text-[10px] uppercase font-bold shrink-0">
-                                    {isReviewPhase ? "Dalam Review" : "Harap Dikerjakan"}
-                                  </Badge>
-                                </div>
-                                <p className="text-xs sm:text-sm text-foreground bg-card/90 p-3 rounded-lg border border-rose-500/20 font-medium whitespace-pre-line">
-                                  &ldquo;{revToShow.feedback}&rdquo;
-                                </p>
-                              </div>
-                            );
-                          }
-                          return null;
+                          if (!targetRound || !task.revisions || task.revisions.length === 0) return null;
+
+                          // Filter revisions for the target round with feedback
+                          const roundRevs = task.revisions.filter(
+                            (r) => r.round === targetRound && r.feedback && r.status !== "APPROVED"
+                          );
+                          const revsToDisplay = roundRevs.length > 0
+                            ? roundRevs
+                            : task.revisions.filter((r) => r.round === targetRound && r.feedback);
+
+                          if (revsToDisplay.length === 0) return null;
+
+                          return (
+                            <div className="space-y-2.5 animate-fade-up">
+                              {revsToDisplay.map((rev) => {
+                                const authorDisplay = rev.authorName || task.reviewer?.name || task.createdBy?.name || "Reviewer";
+                                return (
+                                  <div
+                                    key={rev.id}
+                                    className="rounded-xl border border-rose-500/35 bg-rose-500/10 p-3.5 space-y-2 shadow-sm"
+                                  >
+                                    <div className="flex items-center justify-between text-xs font-bold text-rose-700 dark:text-rose-300">
+                                      <span className="flex items-center gap-1.5">
+                                        <AlertTriangle className="h-4 w-4 shrink-0" />
+                                        <span>Catatan Revisi #{rev.round} dari {authorDisplay}</span>
+                                      </span>
+                                      <Badge variant="destructive" className="text-[10px] uppercase font-bold shrink-0">
+                                        {isReviewPhase ? "Dalam Review" : "Harap Dikerjakan"}
+                                      </Badge>
+                                    </div>
+                                    <p className="text-xs sm:text-sm text-foreground bg-card/90 p-3 rounded-lg border border-rose-500/20 font-medium whitespace-pre-line leading-relaxed">
+                                      &ldquo;{rev.feedback}&rdquo;
+                                    </p>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          );
                         })()}
 
                         {/* IN REVIEW BANNER */}
@@ -3514,68 +3550,198 @@ export function StaffDashboardClient({
                           );
                         })()}
 
+                        {/* REVISION NOTES STACK (Existing notes for the active review round) */}
+                        {(() => {
+                          const pendingRev = task.revisions?.find((r) => r.status === "PENDING");
+                          const reviewTargetRound = pendingRev
+                            ? pendingRev.round
+                            : task.status === "In Review"
+                            ? (task.currentRevisionRound || 0) + 1
+                            : Math.max(task.currentRevisionRound || 1, 1);
+
+                          const targetRoundRevs = (task.revisions || []).filter(
+                            (r) => r.round === reviewTargetRound && r.feedback && r.status !== "APPROVED"
+                          );
+
+                          if (targetRoundRevs.length === 0) return null;
+
+                          return (
+                            <div className="space-y-2.5 animate-fade-up">
+                              {targetRoundRevs.map((rev) => {
+                                const authorDisplay = rev.authorName || task.reviewer?.name || task.createdBy?.name || "Reviewer";
+                                const isMyNote = rev.authorId === user.id;
+                                return (
+                                  <div
+                                    key={rev.id}
+                                    className="rounded-xl border border-rose-500/35 bg-rose-500/10 p-3.5 space-y-2 shadow-sm"
+                                  >
+                                    <div className="flex items-center justify-between text-xs font-bold text-rose-700 dark:text-rose-300">
+                                      <span className="flex items-center gap-1.5">
+                                        <AlertTriangle className="h-4 w-4 shrink-0" />
+                                        <span>Catatan Revisi #{rev.round} dari {authorDisplay}</span>
+                                      </span>
+                                      {isMyNote ? (
+                                        <Badge variant="outline" className="text-[10px] border-rose-500/30 text-rose-600 bg-rose-500/10">
+                                          Catatan Anda
+                                        </Badge>
+                                      ) : (
+                                        <Badge variant="destructive" className="text-[10px] uppercase font-bold shrink-0">
+                                          {isReviewPhase ? "Dalam Review" : "Harap Dikerjakan"}
+                                        </Badge>
+                                      )}
+                                    </div>
+                                    <p className="text-xs sm:text-sm text-foreground bg-card/90 p-3 rounded-lg border border-rose-500/20 font-medium whitespace-pre-line leading-relaxed">
+                                      &ldquo;{rev.feedback}&rdquo;
+                                    </p>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          );
+                        })()}
+
                         {/* IN REVIEW CONTROLS (Approve & Selesai vs Minta Revisi) */}
-                        {isReviewPhase && (
-                          <div className="rounded-xl border border-purple-500/30 bg-purple-500/10 p-3.5 space-y-3 animate-fade-up">
-                            <div className="flex items-center justify-between text-xs font-bold text-purple-700 dark:text-purple-300">
-                              <span>🔍 Menunggu Tindakan Review Anda</span>
-                              <span className="text-[10px] uppercase font-mono">Perlu Review</span>
-                            </div>
+                        {isReviewPhase && (() => {
+                          const pendingRev = task.revisions?.find((r) => r.status === "PENDING");
+                          const reviewTargetRound = pendingRev
+                            ? pendingRev.round
+                            : (task.currentRevisionRound || 0) + 1;
 
-                            {/* 2 Decision Buttons: Approve & Selesai vs Minta Revisi */}
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <Button
-                                size="sm"
-                                disabled={isLoading}
-                                onClick={() => handleApproveTask(task.id)}
-                                className="flex-1 min-w-[140px] shrink-0 whitespace-nowrap gap-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 dark:bg-emerald-500 dark:hover:bg-emerald-600 text-white font-semibold text-xs shadow-sm h-9 px-3 border-0"
-                                title="Setujui hasil kerja dan tandai task resmi selesai"
-                              >
-                                {isLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
-                                <span>Approve & Selesai</span>
-                              </Button>
+                          const currentUserRev = (task.revisions || []).find(
+                            (r) => r.round === reviewTargetRound && r.authorId === user.id
+                          );
+                          const userHasReviewed = Boolean(currentUserRev);
 
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                disabled={isLoading}
-                                onClick={() => setOpenRevisionFormId(showRevisionForm ? null : task.id)}
-                                className="flex-1 min-w-[140px] shrink-0 whitespace-nowrap gap-1.5 rounded-xl border-rose-500/40 text-rose-600 dark:text-rose-400 hover:bg-rose-500/10 font-semibold text-xs h-9 px-3"
-                                title="Tolak preview dan minta revisi dengan catatan"
-                              >
-                                <MessageSquare className="h-3.5 w-3.5" />
-                                <span>{showRevisionForm ? "Tutup Form" : `Minta Revisi #${nextRevisionRound}`}</span>
-                              </Button>
-                            </div>
+                          if (userHasReviewed) {
+                            return (
+                              <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3.5 space-y-2 text-xs text-emerald-700 dark:text-emerald-300 animate-fade-up">
+                                <div className="flex items-center justify-between font-semibold gap-2">
+                                  <span className="flex items-center gap-1.5 truncate">
+                                    <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+                                    <span className="truncate">
+                                      {currentUserRev?.status === "APPROVED"
+                                        ? "Anda telah menyetujui (Approved) task ini"
+                                        : `Catatan revisi Anda (Round #${reviewTargetRound}) telah tersimpan`}
+                                    </span>
+                                  </span>
+                                  {currentUserRev?.status !== "APPROVED" && (
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      onClick={() => {
+                                        const nextOpen = !showRevisionForm;
+                                        setOpenRevisionFormId(nextOpen ? task.id : null);
+                                        if (nextOpen) {
+                                          setRevisionInputs({
+                                            ...revisionInputs,
+                                            [task.id]: currentUserRev?.feedback || "",
+                                          });
+                                        }
+                                      }}
+                                      className="h-6 px-2 text-[11px] text-purple-700 dark:text-purple-300 hover:bg-purple-500/15 font-semibold shrink-0"
+                                    >
+                                      {showRevisionForm ? "Tutup" : "Edit Catatan"}
+                                    </Button>
+                                  )}
+                                </div>
+                                {currentUserRev?.status !== "APPROVED" && !showRevisionForm && (
+                                  <p className="text-xs text-muted-foreground italic">
+                                    Menunggu reviewer lain menyelesaikan peninjauan atau diteruskan ke pelaksana task.
+                                  </p>
+                                )}
 
-                            {/* KOLOM REVISI (Form Input Catatan Revisi) */}
-                            {showRevisionForm && (
-                              <div className="pt-2 border-t border-purple-500/20 space-y-2 animate-fade-up">
-                                <Label htmlFor={`feedback-${task.id}`} className="text-xs font-bold text-foreground flex items-center gap-1.5">
-                                  <AlertTriangle className="h-3.5 w-3.5 text-rose-500" />
-                                  <span>Catatan Revisi untuk {task.user.name}:</span>
-                                </Label>
-                                <Textarea
-                                  id={`feedback-${task.id}`}
-                                  placeholder="Tuliskan poin-poin yang perlu direvisi/disesuaikan oleh pembuat task..."
-                                  rows={2}
-                                  value={revisionInputs[task.id] || ""}
-                                  onChange={(e) => setRevisionInputs({ ...revisionInputs, [task.id]: e.target.value })}
-                                  className="rounded-xl text-xs bg-card"
-                                />
+                                {/* Form to Edit Previously Submitted Revision Note */}
+                                {showRevisionForm && (
+                                  <div className="pt-2 border-t border-emerald-500/20 space-y-2 animate-fade-up">
+                                    <Label htmlFor={`feedback-${task.id}`} className="text-xs font-bold text-foreground flex items-center gap-1.5">
+                                      <AlertTriangle className="h-3.5 w-3.5 text-rose-500" />
+                                      <span>Perbarui Catatan Revisi #{reviewTargetRound}:</span>
+                                    </Label>
+                                    <Textarea
+                                      id={`feedback-${task.id}`}
+                                      placeholder="Ubah catatan revisi..."
+                                      rows={2}
+                                      value={revisionInputs[task.id] || ""}
+                                      onChange={(e) => setRevisionInputs({ ...revisionInputs, [task.id]: e.target.value })}
+                                      className="rounded-xl text-xs bg-card text-foreground"
+                                    />
+                                    <Button
+                                      size="sm"
+                                      disabled={isLoading || !revisionInputs[task.id]?.trim()}
+                                      onClick={() => handleRequestRevision(task.id)}
+                                      className="w-full gap-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-semibold text-xs shadow-sm"
+                                    >
+                                      {isLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+                                      <span>Simpan Perubahan Catatan</span>
+                                    </Button>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          }
+
+                          return (
+                            <div className="rounded-xl border border-purple-500/30 bg-purple-500/10 p-3.5 space-y-3 animate-fade-up">
+                              <div className="flex items-center justify-between text-xs font-bold text-purple-700 dark:text-purple-300">
+                                <span>🔍 Menunggu Tindakan Review Anda</span>
+                                <span className="text-[10px] uppercase font-mono">Perlu Review</span>
+                              </div>
+
+                              {/* 2 Decision Buttons: Approve & Selesai vs Minta Revisi */}
+                              <div className="flex items-center gap-2 flex-wrap">
                                 <Button
                                   size="sm"
-                                  disabled={isLoading || !revisionInputs[task.id]?.trim()}
-                                  onClick={() => handleRequestRevision(task.id)}
-                                  className="w-full gap-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-semibold text-xs shadow-sm"
+                                  disabled={isLoading}
+                                  onClick={() => handleApproveTask(task.id)}
+                                  className="flex-1 min-w-[140px] shrink-0 whitespace-nowrap gap-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 dark:bg-emerald-500 dark:hover:bg-emerald-600 text-white font-semibold text-xs shadow-sm h-9 px-3 border-0"
+                                  title="Setujui hasil kerja dan tandai task resmi selesai"
                                 >
-                                  {isLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
-                                  <span>Kirim Revisi ke {task.user.name}</span>
+                                  {isLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                                  <span>Approve & Selesai</span>
+                                </Button>
+
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  disabled={isLoading}
+                                  onClick={() => setOpenRevisionFormId(showRevisionForm ? null : task.id)}
+                                  className="flex-1 min-w-[140px] shrink-0 whitespace-nowrap gap-1.5 rounded-xl border-rose-500/40 text-rose-600 dark:text-rose-400 hover:bg-rose-500/10 font-semibold text-xs h-9 px-3"
+                                  title="Tolak preview dan minta revisi dengan catatan"
+                                >
+                                  <MessageSquare className="h-3.5 w-3.5" />
+                                  <span>{showRevisionForm ? "Tutup Form" : `Minta Revisi #${reviewTargetRound}`}</span>
                                 </Button>
                               </div>
-                            )}
-                          </div>
-                        )}
+
+                              {/* KOLOM REVISI (Form Input Catatan Revisi) */}
+                              {showRevisionForm && (
+                                <div className="pt-2 border-t border-purple-500/20 space-y-2 animate-fade-up">
+                                  <Label htmlFor={`feedback-${task.id}`} className="text-xs font-bold text-foreground flex items-center gap-1.5">
+                                    <AlertTriangle className="h-3.5 w-3.5 text-rose-500" />
+                                    <span>Catatan Revisi #{reviewTargetRound} untuk {task.user.name}:</span>
+                                  </Label>
+                                  <Textarea
+                                    id={`feedback-${task.id}`}
+                                    placeholder="Tuliskan poin-poin yang perlu direvisi/disesuaikan oleh pembuat task..."
+                                    rows={2}
+                                    value={revisionInputs[task.id] || ""}
+                                    onChange={(e) => setRevisionInputs({ ...revisionInputs, [task.id]: e.target.value })}
+                                    className="rounded-xl text-xs bg-card"
+                                  />
+                                  <Button
+                                    size="sm"
+                                    disabled={isLoading || !revisionInputs[task.id]?.trim()}
+                                    onClick={() => handleRequestRevision(task.id)}
+                                    className="w-full gap-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-semibold text-xs shadow-sm"
+                                  >
+                                    {isLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+                                    <span>Kirim Revisi ke {task.user.name}</span>
+                                  </Button>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
 
                         {/* ACTIVE REVISION STATUS BANNER */}
                         {isRevisionPhase && (
@@ -3878,78 +4044,208 @@ export function StaffDashboardClient({
                           );
                         })()}
 
+                        {/* REVISION NOTES STACK (Existing notes for the active review round) */}
+                        {(() => {
+                          const pendingRev = task.revisions?.find((r) => r.status === "PENDING");
+                          const reviewTargetRound = pendingRev
+                            ? pendingRev.round
+                            : task.status === "In Review"
+                            ? (task.currentRevisionRound || 0) + 1
+                            : Math.max(task.currentRevisionRound || 1, 1);
+
+                          const targetRoundRevs = (task.revisions || []).filter(
+                            (r) => r.round === reviewTargetRound && r.feedback && r.status !== "APPROVED"
+                          );
+
+                          if (targetRoundRevs.length === 0) return null;
+
+                          return (
+                            <div className="space-y-2.5 animate-fade-up">
+                              {targetRoundRevs.map((rev) => {
+                                const authorDisplay = rev.authorName || task.reviewer?.name || task.createdBy?.name || "Reviewer";
+                                const isMyNote = rev.authorId === user.id;
+                                return (
+                                  <div
+                                    key={rev.id}
+                                    className="rounded-xl border border-rose-500/35 bg-rose-500/10 p-3.5 space-y-2 shadow-sm"
+                                  >
+                                    <div className="flex items-center justify-between text-xs font-bold text-rose-700 dark:text-rose-300">
+                                      <span className="flex items-center gap-1.5">
+                                        <AlertTriangle className="h-4 w-4 shrink-0" />
+                                        <span>Catatan Revisi #{rev.round} dari {authorDisplay}</span>
+                                      </span>
+                                      {isMyNote ? (
+                                        <Badge variant="outline" className="text-[10px] border-rose-500/30 text-rose-600 bg-rose-500/10">
+                                          Catatan Anda
+                                        </Badge>
+                                      ) : (
+                                        <Badge variant="destructive" className="text-[10px] uppercase font-bold shrink-0">
+                                          {isReviewPhase ? "Dalam Review" : "Harap Dikerjakan"}
+                                        </Badge>
+                                      )}
+                                    </div>
+                                    <p className="text-xs sm:text-sm text-foreground bg-card/90 p-3 rounded-lg border border-rose-500/20 font-medium whitespace-pre-line leading-relaxed">
+                                      &ldquo;{rev.feedback}&rdquo;
+                                    </p>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          );
+                        })()}
+
                         {/* IN REVIEW CONTROLS (Approve vs Minta Revisi) */}
-                        {isReviewPhase && (
-                          <div className="rounded-xl border border-blue-500/30 bg-blue-500/10 p-3.5 space-y-3 animate-fade-up">
-                            <div className="flex items-center justify-between text-xs font-bold text-blue-700 dark:text-blue-300">
-                              <span>🚀 Staf Telah Deliver Task!</span>
-                              <span className="text-[10px] uppercase font-mono">Perlu Review</span>
-                            </div>
+                        {isReviewPhase && (() => {
+                          const pendingRev = task.revisions?.find((r) => r.status === "PENDING");
+                          const reviewTargetRound = pendingRev
+                            ? pendingRev.round
+                            : (task.currentRevisionRound || 0) + 1;
 
-                            {task.previewDescription && (
-                              <div className="rounded-xl border border-blue-500/20 bg-card/90 p-3 text-xs space-y-1">
-                                <span className="text-[10px] font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400 flex items-center gap-1">
-                                  <MessageSquare className="h-3 w-3" />
-                                  <span>Catatan Deliver dari Staf:</span>
-                                </span>
-                                <p className="text-foreground font-medium whitespace-pre-line italic">
-                                  &ldquo;{task.previewDescription}&rdquo;
-                                </p>
+                          const currentUserRev = (task.revisions || []).find(
+                            (r) => r.round === reviewTargetRound && r.authorId === user.id
+                          );
+                          const userHasReviewed = Boolean(currentUserRev);
+
+                          if (userHasReviewed) {
+                            return (
+                              <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3.5 space-y-2 text-xs text-emerald-700 dark:text-emerald-300 animate-fade-up">
+                                <div className="flex items-center justify-between font-semibold gap-2">
+                                  <span className="flex items-center gap-1.5 truncate">
+                                    <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+                                    <span className="truncate">
+                                      {currentUserRev?.status === "APPROVED"
+                                        ? "Anda telah menyetujui (Approved) task ini"
+                                        : `Catatan revisi Anda (Round #${reviewTargetRound}) telah tersimpan`}
+                                    </span>
+                                  </span>
+                                  {currentUserRev?.status !== "APPROVED" && (
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      onClick={() => {
+                                        const nextOpen = !showRevisionForm;
+                                        setOpenRevisionFormId(nextOpen ? task.id : null);
+                                        if (nextOpen) {
+                                          setRevisionInputs({
+                                            ...revisionInputs,
+                                            [task.id]: currentUserRev?.feedback || "",
+                                          });
+                                        }
+                                      }}
+                                      className="h-6 px-2 text-[11px] text-blue-700 dark:text-blue-300 hover:bg-blue-500/15 font-semibold shrink-0"
+                                    >
+                                      {showRevisionForm ? "Tutup" : "Edit Catatan"}
+                                    </Button>
+                                  )}
+                                </div>
+                                {currentUserRev?.status !== "APPROVED" && !showRevisionForm && (
+                                  <p className="text-xs text-muted-foreground italic">
+                                    Menunggu reviewer lain menyelesaikan peninjauan atau diteruskan ke pelaksana task.
+                                  </p>
+                                )}
+
+                                {/* Form to Edit Previously Submitted Revision Note */}
+                                {showRevisionForm && (
+                                  <div className="pt-2 border-t border-emerald-500/20 space-y-2 animate-fade-up">
+                                    <Label htmlFor={`feedback-${task.id}`} className="text-xs font-bold text-foreground flex items-center gap-1.5">
+                                      <AlertTriangle className="h-3.5 w-3.5 text-rose-500" />
+                                      <span>Perbarui Catatan Revisi #{reviewTargetRound}:</span>
+                                    </Label>
+                                    <Textarea
+                                      id={`feedback-${task.id}`}
+                                      placeholder="Ubah catatan revisi..."
+                                      rows={2}
+                                      value={revisionInputs[task.id] || ""}
+                                      onChange={(e) => setRevisionInputs({ ...revisionInputs, [task.id]: e.target.value })}
+                                      className="rounded-xl text-xs bg-card text-foreground"
+                                    />
+                                    <Button
+                                      size="sm"
+                                      disabled={isLoading || !revisionInputs[task.id]?.trim()}
+                                      onClick={() => handleRequestRevision(task.id)}
+                                      className="w-full gap-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs shadow-sm"
+                                    >
+                                      {isLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+                                      <span>Simpan Perubahan Catatan</span>
+                                    </Button>
+                                  </div>
+                                )}
                               </div>
-                            )}
+                            );
+                          }
 
-                            {/* 2 Decision Buttons: Approve vs Minta Revisi */}
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <Button
-                                size="sm"
-                                disabled={isLoading}
-                                onClick={() => handleApproveTask(task.id)}
-                                className="flex-1 min-w-[140px] shrink-0 whitespace-nowrap gap-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 text-white font-semibold text-xs shadow-sm h-9 px-3 border-0"
-                              >
-                                {isLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
-                                <span>✓ Approve & Selesai</span>
-                              </Button>
+                          return (
+                            <div className="rounded-xl border border-blue-500/30 bg-blue-500/10 p-3.5 space-y-3 animate-fade-up">
+                              <div className="flex items-center justify-between text-xs font-bold text-blue-700 dark:text-blue-300">
+                                <span>🚀 Staf Telah Deliver Task!</span>
+                                <span className="text-[10px] uppercase font-mono">Perlu Review</span>
+                              </div>
 
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                disabled={isLoading}
-                                onClick={() => setOpenRevisionFormId(showRevisionForm ? null : task.id)}
-                                className="flex-1 min-w-[140px] shrink-0 whitespace-nowrap gap-1.5 rounded-xl border-rose-500/40 text-rose-600 dark:text-rose-400 hover:bg-rose-500/10 font-semibold text-xs h-9 px-3"
-                              >
-                                <MessageSquare className="h-3.5 w-3.5" />
-                                <span>{showRevisionForm ? "Tutup Form" : `Minta Revisi #${nextRevisionRound}`}</span>
-                              </Button>
-                            </div>
+                              {task.previewDescription && (
+                                <div className="rounded-xl border border-blue-500/20 bg-card/90 p-3 text-xs space-y-1">
+                                  <span className="text-[10px] font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400 flex items-center gap-1">
+                                    <MessageSquare className="h-3 w-3" />
+                                    <span>Catatan Deliver dari Staf:</span>
+                                  </span>
+                                  <p className="text-foreground font-medium whitespace-pre-line italic">
+                                    &ldquo;{task.previewDescription}&rdquo;
+                                  </p>
+                                </div>
+                              )}
 
-                            {/* KOLOM REVISI (Form Input Catatan Revisi) */}
-                            {showRevisionForm && (
-                              <div className="pt-2 border-t border-blue-500/20 space-y-2 animate-fade-up">
-                                <Label htmlFor={`feedback-${task.id}`} className="text-xs font-bold text-foreground flex items-center gap-1.5">
-                                  <AlertTriangle className="h-3.5 w-3.5 text-rose-500" />
-                                  <span>Kolom Catatan Revisi #{nextRevisionRound}:</span>
-                                </Label>
-                                <Textarea
-                                  id={`feedback-${task.id}`}
-                                  placeholder="Tuliskan poin-poin yang perlu direvisi oleh staf (misal: warna font, posisi logo, ukuran aset)..."
-                                  rows={2}
-                                  value={revisionInputs[task.id] || ""}
-                                  onChange={(e) => setRevisionInputs({ ...revisionInputs, [task.id]: e.target.value })}
-                                  className="rounded-xl text-xs bg-card"
-                                />
+                              {/* 2 Decision Buttons: Approve vs Minta Revisi */}
+                              <div className="flex items-center gap-2 flex-wrap">
                                 <Button
                                   size="sm"
-                                  disabled={isLoading || !revisionInputs[task.id]?.trim()}
-                                  onClick={() => handleRequestRevision(task.id)}
-                                  className="w-full gap-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-semibold text-xs shadow-sm"
+                                  disabled={isLoading}
+                                  onClick={() => handleApproveTask(task.id)}
+                                  className="flex-1 min-w-[140px] shrink-0 whitespace-nowrap gap-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 text-white font-semibold text-xs shadow-sm h-9 px-3 border-0"
                                 >
-                                  {isLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
-                                  <span>Kirim Catatan Revisi #{nextRevisionRound} ke Staf</span>
+                                  {isLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                                  <span>✓ Approve & Selesai</span>
+                                </Button>
+
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  disabled={isLoading}
+                                  onClick={() => setOpenRevisionFormId(showRevisionForm ? null : task.id)}
+                                  className="flex-1 min-w-[140px] shrink-0 whitespace-nowrap gap-1.5 rounded-xl border-rose-500/40 text-rose-600 dark:text-rose-400 hover:bg-rose-500/10 font-semibold text-xs h-9 px-3"
+                                >
+                                  <MessageSquare className="h-3.5 w-3.5" />
+                                  <span>{showRevisionForm ? "Tutup Form" : `Minta Revisi #${reviewTargetRound}`}</span>
                                 </Button>
                               </div>
-                            )}
-                          </div>
-                        )}
+
+                              {/* KOLOM REVISI (Form Input Catatan Revisi) */}
+                              {showRevisionForm && (
+                                <div className="pt-2 border-t border-blue-500/20 space-y-2 animate-fade-up">
+                                  <Label htmlFor={`feedback-${task.id}`} className="text-xs font-bold text-foreground flex items-center gap-1.5">
+                                    <AlertTriangle className="h-3.5 w-3.5 text-rose-500" />
+                                    <span>Kolom Catatan Revisi #{reviewTargetRound}:</span>
+                                  </Label>
+                                  <Textarea
+                                    id={`feedback-${task.id}`}
+                                    placeholder="Tuliskan poin-poin yang perlu direvisi oleh staf (misal: warna font, posisi logo, ukuran aset)..."
+                                    rows={2}
+                                    value={revisionInputs[task.id] || ""}
+                                    onChange={(e) => setRevisionInputs({ ...revisionInputs, [task.id]: e.target.value })}
+                                    className="rounded-xl text-xs bg-card"
+                                  />
+                                  <Button
+                                    size="sm"
+                                    disabled={isLoading || !revisionInputs[task.id]?.trim()}
+                                    onClick={() => handleRequestRevision(task.id)}
+                                    className="w-full gap-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-semibold text-xs shadow-sm"
+                                  >
+                                    {isLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+                                    <span>Kirim Catatan Revisi #{reviewTargetRound} ke Staf</span>
+                                  </Button>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
 
                         {/* ACTIVE REVISION STATUS BANNER */}
                         {isRevisionPhase && (
@@ -4289,20 +4585,50 @@ export function StaffDashboardClient({
                           </div>
 
                           {/* REVISION ALERT BOX (If in Revision state) */}
-                          {isRevisionPhase && activeRevision && (
-                            <div className="rounded-xl border border-rose-500/35 bg-rose-500/10 p-3 space-y-1.5 text-xs animate-fade-up">
-                              <div className="flex items-center justify-between font-bold text-rose-700 dark:text-rose-300 text-xs">
-                                <span className="flex items-center gap-1">
-                                  <AlertTriangle className="h-3.5 w-3.5" />
-                                  <span>Revisi #{activeRevision.round}</span>
-                                </span>
-                                <Badge variant="destructive" className="text-[10px] uppercase font-bold py-0">Sedang Direvisi</Badge>
+                          {(() => {
+                            const targetRound =
+                              task.currentRevisionRound > 0
+                                ? task.currentRevisionRound
+                                : (task.revisions && task.revisions.length > 0
+                                    ? task.revisions[task.revisions.length - 1].round
+                                    : 0);
+
+                            if (!targetRound || !task.revisions || task.revisions.length === 0) return null;
+
+                            const roundRevs = task.revisions.filter(
+                              (r) => r.round === targetRound && r.feedback && r.status !== "APPROVED"
+                            );
+                            const revsToDisplay = roundRevs.length > 0
+                              ? roundRevs
+                              : task.revisions.filter((r) => r.round === targetRound && r.feedback);
+
+                            if (revsToDisplay.length === 0) return null;
+
+                            return (
+                              <div className="space-y-2 animate-fade-up">
+                                {revsToDisplay.map((rev) => {
+                                  const authorDisplay = rev.authorName || task.reviewer?.name || task.createdBy?.name || "Reviewer";
+                                  return (
+                                    <div
+                                      key={rev.id}
+                                      className="rounded-xl border border-rose-500/35 bg-rose-500/10 p-3 space-y-1.5 text-xs shadow-sm"
+                                    >
+                                      <div className="flex items-center justify-between font-bold text-rose-700 dark:text-rose-300 text-xs">
+                                        <span className="flex items-center gap-1">
+                                          <AlertTriangle className="h-3.5 w-3.5" />
+                                          <span>Catatan Revisi #{rev.round} dari {authorDisplay}</span>
+                                        </span>
+                                        <Badge variant="destructive" className="text-[10px] uppercase font-bold py-0">Sedang Direvisi</Badge>
+                                      </div>
+                                      <p className="text-xs text-foreground bg-card/90 p-2 rounded-lg border border-rose-500/20 font-medium whitespace-pre-line leading-relaxed">
+                                        &ldquo;{rev.feedback}&rdquo;
+                                      </p>
+                                    </div>
+                                  );
+                                })}
                               </div>
-                              <p className="text-xs text-foreground bg-card/90 p-2 rounded-lg border border-rose-500/20 font-medium whitespace-pre-line">
-                                &ldquo;{activeRevision.feedback}&rdquo;
-                              </p>
-                            </div>
-                          )}
+                            );
+                          })()}
                         </div>
                       </div>
 

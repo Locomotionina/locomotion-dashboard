@@ -138,6 +138,8 @@ model TaskRevision {
   task           Task      @relation(fields: [taskId], references: [id], onDelete: Cascade)
   round          Int
   feedback       String
+  authorId       String?
+  authorName     String?
   seconds        Int       @default(0)
   timerActive    Boolean   @default(false)
   timerStartedAt DateTime?

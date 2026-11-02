@@ -8,6 +8,8 @@ interface TaskRevisionItem {
   id: string;
   round: number;
   feedback: string;
+  authorId?: string | null;
+  authorName?: string | null;
   seconds: number;
   timerActive: boolean;
   timerStartedAt: Date | string | null;
@@ -292,10 +294,15 @@ export function TaskRecapBreakdown({ task }: TaskRecapBreakdownProps) {
                 >
                   {/* Revision Round Header */}
                   <div className="flex items-center justify-between gap-2 flex-wrap">
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex items-center gap-1.5 flex-wrap">
                       <span className="font-bold text-foreground text-xs">
                         Ronde #{rev.round}
                       </span>
+                      {rev.authorName && (
+                        <span className="text-[10px] text-muted-foreground font-medium">
+                          dari {rev.authorName}
+                        </span>
+                      )}
                       {rev.status && (
                         <span className={`text-[10px] font-semibold px-2 py-0.2 rounded-full border ${
                           rev.status === "DELIVERED" || rev.status === "APPROVED"

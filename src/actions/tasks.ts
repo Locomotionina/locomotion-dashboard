@@ -308,16 +308,26 @@ export async function deliverTaskAction(
     }
 
     if (task.status === "Revision" || task.currentPhase === "REVISION") {
+      await prisma.taskRevision.updateMany({
+        where: {
+          taskId,
+          round: task.currentRevisionRound,
+          status: "PENDING",
+        },
+        data: {
+          timerActive: false,
+          timerStartedAt: null,
+          status: "DELIVERED",
+          deliveredAt: now,
+        },
+      });
+
       const activeRevision = task.revisions[0];
       if (activeRevision) {
         await prisma.taskRevision.update({
           where: { id: activeRevision.id },
           data: {
             seconds: (activeRevision.seconds || 0) + elapsed,
-            timerActive: false,
-            timerStartedAt: null,
-            status: "DELIVERED",
-            deliveredAt: now,
           },
         });
       }
@@ -464,16 +474,26 @@ export async function requestTaskPreviewAction(
     const elapsed = Math.max(0, isNaN(rawElapsed) ? 0 : rawElapsed);
 
     if (task.status === "Revision" || task.currentPhase === "REVISION") {
+      await prisma.taskRevision.updateMany({
+        where: {
+          taskId,
+          round: task.currentRevisionRound,
+          status: "PENDING",
+        },
+        data: {
+          timerActive: false,
+          timerStartedAt: null,
+          status: "DELIVERED",
+          deliveredAt: now,
+        },
+      });
+
       const activeRevision = task.revisions[0];
       if (activeRevision) {
         await prisma.taskRevision.update({
           where: { id: activeRevision.id },
           data: {
             seconds: (activeRevision.seconds || 0) + elapsed,
-            timerActive: false,
-            timerStartedAt: null,
-            status: "DELIVERED",
-            deliveredAt: now,
           },
         });
       }
@@ -725,56 +745,118 @@ export async function requestRevisionAction(
       return { success: false, error: "Catatan revisi harus diisi." };
     }
 
-    const task = await prisma.task.findUnique({ where: { id: taskId } });
+    const task = await prisma.task.findUnique({
+      where: { id: taskId },
+      include: { revisions: { orderBy: { createdAt: "asc" } } },
+    });
     if (!task) return { success: false, error: "Task not found" };
 
-    const isMultiReviewer = task.reviewerIds ? task.reviewerIds.includes(currentUser.id) : false;
+    let assignedReviewerIds: string[] = [];
+    if (task.reviewerIds) {
+      try {
+        const parsed = JSON.parse(task.reviewerIds);
+        assignedReviewerIds = Array.isArray(parsed) ? parsed : [parsed];
+      } catch {
+        assignedReviewerIds = task.reviewerIds.split(",").map((s) => s.trim()).filter(Boolean);
+      }
+    }
+    if (assignedReviewerIds.length === 0) {
+      if (task.reviewerId) assignedReviewerIds.push(task.reviewerId);
+      else if (task.createdById) assignedReviewerIds.push(task.createdById);
+    }
+    const isAssignedReviewer = assignedReviewerIds.includes(currentUser.id);
+
     // Creator, management, admin, or assigned reviewer can request revisions
     if (
       currentUser.role !== "MANAGEMENT" &&
       currentUser.role !== "ADMIN" &&
       task.createdById !== currentUser.id &&
       task.reviewerId !== currentUser.id &&
-      !isMultiReviewer &&
+      !isAssignedReviewer &&
       task.userId !== currentUser.id
     ) {
       return { success: false, error: "Unauthorized to request revision" };
     }
 
-    const nextRound = (task.currentRevisionRound || 0) + 1;
+    // Determine target round:
+    // If there is already a PENDING revision for this cycle, use that round number
+    const pendingRevisions = task.revisions.filter((r) => r.status === "PENDING");
+    let targetRound: number;
+    if (pendingRevisions.length > 0) {
+      targetRound = pendingRevisions[0].round;
+    } else if (task.status === "In Review") {
+      targetRound = (task.currentRevisionRound || 0) + 1;
+    } else {
+      targetRound = Math.max(task.currentRevisionRound || 1, 1);
+    }
 
-    // Create new revision record
-    await prisma.taskRevision.create({
-      data: {
-        taskId,
-        round: nextRound,
-        feedback: feedback.trim(),
-        seconds: 0,
-        timerActive: false,
-        status: "PENDING",
-      },
-    });
+    // Upsert the revision note for this reviewer and round
+    const existingUserRevision = task.revisions.find(
+      (r) => r.round === targetRound && r.authorId === currentUser.id
+    );
 
-    // Update task to Revision status
+    if (existingUserRevision) {
+      await prisma.taskRevision.update({
+        where: { id: existingUserRevision.id },
+        data: {
+          feedback: feedback.trim(),
+          status: "PENDING",
+          authorName: currentUser.name,
+        },
+      });
+    } else {
+      await prisma.taskRevision.create({
+        data: {
+          taskId,
+          round: targetRound,
+          feedback: feedback.trim(),
+          authorId: currentUser.id,
+          authorName: currentUser.name,
+          seconds: 0,
+          timerActive: false,
+          status: "PENDING",
+        },
+      });
+    }
+
+    // Check if other assigned reviewers still haven't submitted feedback
+    const reviewedAuthors = new Set(
+      task.revisions
+        .filter((r) => r.round === targetRound)
+        .map((r) => r.authorId)
+        .filter(Boolean)
+    );
+    reviewedAuthors.add(currentUser.id);
+
+    const hasPendingOtherReviewers =
+      assignedReviewerIds.length > 1 &&
+      assignedReviewerIds.some((id) => !reviewedAuthors.has(id));
+
+    // Parallel review support:
+    // Keep task.status = "In Review" if other assigned reviewers haven't reviewed yet,
+    // so they are NOT locked out from approving or requesting revisions.
+    // Transition to "Revision" once all assigned reviewers have submitted.
+    const nextStatus = hasPendingOtherReviewers ? "In Review" : "Revision";
+
     await prisma.task.update({
       where: { id: taskId },
       data: {
-        status: "Revision",
+        status: nextStatus,
         currentPhase: "REVISION",
-        currentRevisionRound: nextRound,
+        currentRevisionRound: targetRound,
         timerActive: false,
         timerStartedAt: null,
       },
     });
 
-    // Notifikasi terintegrasi untuk penerima/pelaksana task bahwa revisi diminta
+    // Integrated notification for assignee
     if (task.userId !== currentUser.id) {
       const snippet = feedback.trim().length > 60 ? feedback.trim().slice(0, 57) + "..." : feedback.trim();
-      const isReviewerAction = task.reviewerId === currentUser.id;
+      const waitingNote = hasPendingOtherReviewers ? " (Reviewer lain sedang meninjau)" : "";
       await createNotification({
         userId: task.userId,
-        title: `Revisi Diminta${isReviewerAction ? " oleh Reviewer" : ""} (Round #${nextRound})`,
-        message: `${currentUser.name} meminta revisi untuk "${task.title}": "${snippet}"`,
+        title: `Catatan Revisi dari ${currentUser.name} (Round #${targetRound})${waitingNote}`,
+        message: `${currentUser.name} memberikan catatan revisi untuk "${task.title}": "${snippet}"`,
         type: "TASK_REVISION",
         link: "/dashboard?tab=active",
         taskId: task.id,
@@ -795,7 +877,8 @@ export async function requestRevisionAction(
 
 /**
  * APPROVE TASK (Approve & Selesai):
- * Marks task as Done and records completion.
+ * Marks reviewer approval. If multiple reviewers are assigned, waits for all reviewers.
+ * Transitions to Done when all approved (or Revision if any reviewer requested revision).
  */
 export async function approveTaskAction(taskId: string) {
   try {
@@ -804,51 +887,139 @@ export async function approveTaskAction(taskId: string) {
 
     const task = await prisma.task.findUnique({
       where: { id: taskId },
-      include: { revisions: { orderBy: { round: "desc" }, take: 1 } },
+      include: { revisions: { orderBy: { createdAt: "asc" } } },
     });
     if (!task) return { success: false, error: "Task not found" };
 
-    const isMultiReviewer = task.reviewerIds ? task.reviewerIds.includes(currentUser.id) : false;
+    let assignedReviewerIds: string[] = [];
+    if (task.reviewerIds) {
+      try {
+        const parsed = JSON.parse(task.reviewerIds);
+        assignedReviewerIds = Array.isArray(parsed) ? parsed : [parsed];
+      } catch {
+        assignedReviewerIds = task.reviewerIds.split(",").map((s) => s.trim()).filter(Boolean);
+      }
+    }
+    if (assignedReviewerIds.length === 0) {
+      if (task.reviewerId) assignedReviewerIds.push(task.reviewerId);
+      else if (task.createdById) assignedReviewerIds.push(task.createdById);
+    }
+    const isAssignedReviewer = assignedReviewerIds.includes(currentUser.id);
+
     if (
       currentUser.role !== "MANAGEMENT" &&
       currentUser.role !== "ADMIN" &&
       task.createdById !== currentUser.id &&
       task.reviewerId !== currentUser.id &&
-      !isMultiReviewer &&
+      !isAssignedReviewer &&
       task.userId !== currentUser.id
     ) {
       return { success: false, error: "Unauthorized to approve this task" };
     }
 
-    const activeRevision = task.revisions[0];
-    if (activeRevision) {
+    const pendingRevisions = task.revisions.filter((r) => r.status === "PENDING");
+    const targetRound = pendingRevisions.length > 0
+      ? pendingRevisions[0].round
+      : (task.status === "In Review" ? (task.currentRevisionRound || 0) + 1 : Math.max(task.currentRevisionRound || 1, 1));
+
+    // Record approval from current reviewer
+    const existingUserRevision = task.revisions.find(
+      (r) => r.round === targetRound && r.authorId === currentUser.id
+    );
+
+    if (existingUserRevision) {
       await prisma.taskRevision.update({
-        where: { id: activeRevision.id },
-        data: { status: "APPROVED" },
+        where: { id: existingUserRevision.id },
+        data: {
+          status: "APPROVED",
+          feedback: "Disetujui (Approved)",
+          authorName: currentUser.name,
+        },
+      });
+    } else {
+      await prisma.taskRevision.create({
+        data: {
+          taskId,
+          round: targetRound,
+          feedback: "Disetujui tanpa revisi (Approved)",
+          authorId: currentUser.id,
+          authorName: currentUser.name,
+          status: "APPROVED",
+          seconds: 0,
+          timerActive: false,
+        },
       });
     }
 
-    await prisma.task.update({
-      where: { id: taskId },
-      data: {
-        status: "Done",
-        completedAt: new Date(),
-        timerActive: false,
-        timerStartedAt: null,
-      },
-    });
+    // Check if other assigned reviewers still need to review
+    const reviewedAuthors = new Set(
+      task.revisions
+        .filter((r) => r.round === targetRound)
+        .map((r) => r.authorId)
+        .filter(Boolean)
+    );
+    reviewedAuthors.add(currentUser.id);
 
-    // Notifikasi terintegrasi untuk spesialis pelaksana bahwa hasil kerjanya disetujui
-    if (task.userId !== currentUser.id) {
-      const isReviewer = task.reviewerId === currentUser.id;
-      await createNotification({
-        userId: task.userId,
-        title: "Task Disetujui & Selesai! 🎉",
-        message: `${currentUser.name} telah menyetujui ${isReviewer ? "preview" : "deliverable"} "${task.title}". Status resmi menjadi Done.`,
-        type: "TASK_APPROVED",
-        link: "/dashboard?tab=archive",
-        taskId: task.id,
-      }).catch((e) => console.error("Notification creation failed:", e));
+    const hasPendingOtherReviewers =
+      assignedReviewerIds.length > 1 &&
+      assignedReviewerIds.some((id) => !reviewedAuthors.has(id));
+
+    if (hasPendingOtherReviewers) {
+      // Keep In Review so other reviewers can review independently without lockout
+      await prisma.task.update({
+        where: { id: taskId },
+        data: {
+          status: "In Review",
+          currentRevisionRound: targetRound,
+        },
+      });
+    } else {
+      // All reviewers finished!
+      // Check if any reviewer requested revisions (status === 'PENDING')
+      const stillPendingRevisions = await prisma.taskRevision.findMany({
+        where: { taskId, round: targetRound, status: "PENDING" },
+      });
+
+      if (stillPendingRevisions.length > 0) {
+        // Some reviewers requested revisions -> move to Revision
+        await prisma.task.update({
+          where: { id: taskId },
+          data: {
+            status: "Revision",
+            currentPhase: "REVISION",
+            currentRevisionRound: targetRound,
+            timerActive: false,
+            timerStartedAt: null,
+          },
+        });
+      } else {
+        // All reviewers approved -> Done!
+        await prisma.taskRevision.updateMany({
+          where: { taskId },
+          data: { status: "APPROVED" },
+        });
+
+        await prisma.task.update({
+          where: { id: taskId },
+          data: {
+            status: "Done",
+            completedAt: new Date(),
+            timerActive: false,
+            timerStartedAt: null,
+          },
+        });
+
+        if (task.userId !== currentUser.id) {
+          await createNotification({
+            userId: task.userId,
+            title: "Task Disetujui & Selesai! 🎉",
+            message: `${currentUser.name} telah menyetujui "${task.title}". Status resmi menjadi Done.`,
+            type: "TASK_APPROVED",
+            link: "/dashboard?tab=archive",
+            taskId: task.id,
+          }).catch((e) => console.error("Notification creation failed:", e));
+        }
+      }
     }
 
     revalidatePath("/dashboard");
