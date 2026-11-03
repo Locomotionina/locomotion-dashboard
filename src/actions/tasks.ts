@@ -307,7 +307,9 @@ export async function deliverTaskAction(
       finalReviewerIds = JSON.stringify([task.createdById]);
     }
 
-    if (task.status === "Revision" || task.currentPhase === "REVISION") {
+    const isRevision = task.status === "Revision" || task.currentPhase === "REVISION";
+
+    if (isRevision) {
       await prisma.taskRevision.updateMany({
         where: {
           taskId,
@@ -369,13 +371,19 @@ export async function deliverTaskAction(
     }
 
     const snippet = description.trim().length > 60 ? description.trim().slice(0, 57) + "..." : description.trim();
+    const eventType = isRevision ? "REVISION_DELIVERED" : "PREVIEW_REQUESTED";
+    const notifTitle = isRevision ? "Revisi Telah Diserahkan 🚀" : "Permintaan Preview Task 🔍";
+    const notifMessage = isRevision
+      ? `${currentUser.name} telah men-deliver hasil revisi task "${task.title}" untuk di-review${snippet ? `: "${snippet}"` : "."}`
+      : `${currentUser.name} telah men-deliver task "${task.title}" untuk di-review${snippet ? `: "${snippet}"` : "."}`;
+
     for (const recipientId of Array.from(recipients)) {
       if (recipientId !== currentUser.id) {
         await createNotification({
           userId: recipientId,
-          title: "Task Telah Di-Deliver 🚀",
-          message: `${currentUser.name} telah men-deliver task "${task.title}" untuk di-review${snippet ? `: "${snippet}"` : "."}`,
-          type: "TASK_DELIVERED",
+          title: notifTitle,
+          message: notifMessage,
+          type: eventType,
           link: "/dashboard?tab=delivered",
           taskId: task.id,
         }).catch((e) => console.error("Notification delivery failed:", e));
@@ -473,7 +481,9 @@ export async function requestTaskPreviewAction(
       : 0;
     const elapsed = Math.max(0, isNaN(rawElapsed) ? 0 : rawElapsed);
 
-    if (task.status === "Revision" || task.currentPhase === "REVISION") {
+    const isRevision = task.status === "Revision" || task.currentPhase === "REVISION";
+
+    if (isRevision) {
       await prisma.taskRevision.updateMany({
         where: {
           taskId,
@@ -528,12 +538,18 @@ export async function requestTaskPreviewAction(
 
     // Notifikasi real-time untuk setiap Reviewer yang dipilih
     const snippet = description.trim().length > 60 ? description.trim().slice(0, 57) + "..." : description.trim();
+    const eventType = isRevision ? "REVISION_DELIVERED" : "PREVIEW_REQUESTED";
+    const notifTitle = isRevision ? "Revisi Telah Diserahkan 🚀" : "Permintaan Preview Task 🔍";
+    const notifMessage = isRevision
+      ? `${currentUser.name} telah menyerahkan hasil revisi task "${task.title}" untuk di-review${snippet ? `: "${snippet}"` : "."}`
+      : `${currentUser.name} meminta Anda me-review task "${task.title}"${snippet ? `: "${snippet}"` : "."}`;
+
     for (const rId of targetUserIds) {
       await createNotification({
         userId: rId,
-        title: "Permintaan Preview Task 🔍",
-        message: `${currentUser.name} meminta Anda me-review task "${task.title}"${snippet ? `: "${snippet}"` : "."}`,
-        type: "TASK_DELIVERED",
+        title: notifTitle,
+        message: notifMessage,
+        type: eventType,
         link: `/dashboard?tab=reviews&taskId=${task.id}`,
         taskId: task.id,
       }).catch((e) => console.error("Notification creation failed:", e));

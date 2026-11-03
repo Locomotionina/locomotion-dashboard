@@ -2,16 +2,29 @@
 
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
-import { sendNotificationEmail } from "@/lib/mail";
+import { sendTaskNotificationEmail, TaskEmailEventType } from "@/lib/email";
 import { revalidatePath } from "next/cache";
 
 export type NotificationType =
-  | "TASK_ASSIGNED"
-  | "TASK_DELIVERED"
-  | "TASK_REVISION"
-  | "TASK_APPROVED"
+  | "TASK_ASSIGNED"       // 1. Task Delegated
+  | "TASK_DELEGATED"      // 1. Task Delegated
+  | "PREVIEW_REQUESTED"   // 2. Preview Requested
+  | "REVISION_DELIVERED"  // 3. Revision Delivered
+  | "TASK_DELIVERED"      // legacy alias
+  | "TASK_REVISION"       // 4. Revision Feedback
+  | "TASK_APPROVED"       // 4. Task Approved
   | "TASK_DONE"
   | "INFO";
+
+const EMAIL_TRIGGER_EVENT_TYPES = new Set([
+  "TASK_ASSIGNED",
+  "TASK_DELEGATED",
+  "PREVIEW_REQUESTED",
+  "REVISION_DELIVERED",
+  "TASK_DELIVERED",
+  "TASK_REVISION",
+  "TASK_APPROVED",
+]);
 
 interface CreateNotificationParams {
   userId: string;
@@ -43,18 +56,27 @@ export async function createNotification(params: CreateNotificationParams) {
       },
     });
 
-    // Kirim notifikasi email via Resend secara otomatis (non-blocking)
-    if (notification.user?.email) {
-      sendNotificationEmail({
-        to: notification.user.email,
-        userName: notification.user.name,
-        title: params.title,
-        message: params.message,
-        link: params.link,
-        type: params.type || "INFO",
-      }).catch((mailErr) => {
-        console.error("[Mail] Gagal mengirim notifikasi email:", mailErr);
-      });
+    // Kirim notifikasi email via Resend secara otomatis (non-blocking) khusus untuk 4 event task utama
+    const shouldSendEmail =
+      Boolean(notification.user?.email) &&
+      Boolean(params.type && EMAIL_TRIGGER_EVENT_TYPES.has(params.type));
+
+    if (shouldSendEmail && notification.user?.email) {
+      try {
+        sendTaskNotificationEmail({
+          to: notification.user.email,
+          userName: notification.user.name,
+          title: params.title,
+          message: params.message,
+          link: params.link,
+          type: params.type as TaskEmailEventType,
+        }).catch((mailErr) => {
+          console.error("[Resend] Gagal mengirim notifikasi email:", mailErr);
+        });
+      } catch (mailException) {
+        // Strict constraint: email failure must NEVER block notification or DB transaction
+        console.error("[Resend] Safe exception caught during email dispatch:", mailException);
+      }
     }
 
     return { success: true, notification };
