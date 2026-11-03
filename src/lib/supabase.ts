@@ -1,6 +1,6 @@
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 
-export const LOCOMOTION_PRESENCE_CHANNEL = "locomotion-live-presence";
+export const LOCOMOTION_PRESENCE_CHANNEL = "room:management_presence";
 
 let supabaseBrowserClient: SupabaseClient | null = null;
 
@@ -42,8 +42,9 @@ export function getSupabaseBrowserClient(): SupabaseClient | null {
     supabaseBrowserClient = createClient(supabaseUrl, supabaseAnonKey, {
       realtime: {
         params: {
-          eventsPerSecond: 10,
+          eventsPerSecond: 20,
         },
+        timeout: 20000,
       },
     });
     return supabaseBrowserClient;

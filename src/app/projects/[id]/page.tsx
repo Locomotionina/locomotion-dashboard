@@ -134,7 +134,7 @@ export default async function ProjectDetailPage({
           creativeDeckUrl={project.creativeDeckUrl}
           finalAssetsUrl={project.finalAssetsUrl}
           customDeliverables={project.deliverables as any}
-          canManageDeliverables={canManageDeliverables(currentUser?.position)}
+          canManageDeliverables={canManageDeliverables(currentUser?.position, currentUser?.department)}
         />
 
         {/* Automated PIC Roster & Modern Task Breakdown Table */}

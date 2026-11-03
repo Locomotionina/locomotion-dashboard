@@ -44,6 +44,27 @@ export function PresenceTracker({ user }: PresenceTrackerProps) {
     const supabase = getSupabaseBrowserClient();
     let channel: any = null;
 
+    const trackCurrentPresence = async () => {
+      if (!channel) return;
+      const payload: RealtimePresencePayload = {
+        userId: user.id,
+        username: user.username,
+        name: user.name,
+        avatarUrl: user.avatarUrl,
+        role: user.role,
+        department: user.department,
+        onlineAt: new Date().toISOString(),
+        activeTaskId: currentTaskRef.current.taskId || null,
+        activeTaskTitle: currentTaskRef.current.taskTitle || null,
+        isTimerActive: Boolean(currentTaskRef.current.timerActive),
+      };
+      try {
+        await channel.track(payload);
+      } catch (err) {
+        console.debug("Supabase presence track error:", err);
+      }
+    };
+
     if (supabase) {
       channel = supabase.channel(LOCOMOTION_PRESENCE_CHANNEL, {
         config: {
@@ -52,26 +73,6 @@ export function PresenceTracker({ user }: PresenceTrackerProps) {
           },
         },
       });
-
-      const trackCurrentPresence = async () => {
-        const payload: RealtimePresencePayload = {
-          userId: user.id,
-          username: user.username,
-          name: user.name,
-          avatarUrl: user.avatarUrl,
-          role: user.role,
-          department: user.department,
-          onlineAt: new Date().toISOString(),
-          activeTaskId: currentTaskRef.current.taskId || null,
-          activeTaskTitle: currentTaskRef.current.taskTitle || null,
-          isTimerActive: Boolean(currentTaskRef.current.timerActive),
-        };
-        try {
-          await channel.track(payload);
-        } catch (err) {
-          console.debug("Supabase presence track error:", err);
-        }
-      };
 
       channel.subscribe(async (status: string) => {
         if (status === "SUBSCRIBED") {
@@ -139,14 +140,32 @@ export function PresenceTracker({ user }: PresenceTrackerProps) {
 
     window.addEventListener("beforeunload", handleBeforeUnload);
 
+    // 5. Reconnection & tab focus handler
+    const handleReconnect = () => {
+      if (!document.hidden && channel) {
+        sendHeartbeat();
+        trackCurrentPresence();
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleReconnect);
+    window.addEventListener("focus", handleReconnect);
+    window.addEventListener("online", handleReconnect);
+
     return () => {
       clearInterval(heartbeatInterval);
       window.removeEventListener("task-timer-state-changed", handleTimerChange);
       window.removeEventListener("beforeunload", handleBeforeUnload);
+      document.removeEventListener("visibilitychange", handleReconnect);
+      window.removeEventListener("focus", handleReconnect);
+      window.removeEventListener("online", handleReconnect);
 
       if (channel) {
-        channel.untrack();
-        channel.unsubscribe();
+        channel.untrack?.();
+        channel.unsubscribe?.();
+        if (supabase) {
+          supabase.removeChannel(channel);
+        }
       }
     };
   }, [user]);

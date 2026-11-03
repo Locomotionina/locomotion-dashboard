@@ -140,7 +140,8 @@ export function formatExternalUrl(url: string): string {
  * - Business Development Head
  * - Sales Executive
  * - Account Executive
- * Selain posisi tersebut, akses ditolak.
+ * - Social Media (Departemen Project/Production)
+ * Selain posisi/kombinasi tersebut, akses ditolak.
  */
 export const DELIVERABLE_AUTHORIZED_POSITIONS = [
   "project manager",
@@ -150,12 +151,34 @@ export const DELIVERABLE_AUTHORIZED_POSITIONS = [
   "sales executive",
   "account executive",
   "accounte executive",
+  "social media",
 ];
 
-export function canManageDeliverables(position?: string | null): boolean {
-  if (!position) return false;
-  const p = position.trim().toLowerCase();
-  return (
+export function canManageDeliverables(
+  positionOrUser?:
+    | string
+    | { position?: string | null; department?: string | null; role?: string | null }
+    | null,
+  department?: string | null
+): boolean {
+  if (!positionOrUser) return false;
+
+  let pos: string | null = null;
+  let dept: string | null = department ?? null;
+
+  if (typeof positionOrUser === "object") {
+    pos = positionOrUser.position ?? null;
+    dept = positionOrUser.department ?? department ?? null;
+  } else {
+    pos = positionOrUser;
+  }
+
+  if (!pos) return false;
+  const p = pos.trim().toLowerCase();
+  const d = dept ? dept.trim().toLowerCase() : "";
+
+  // 1. Management & BD authorized positions
+  if (
     p === "project manager" ||
     p === "associate project manager" ||
     p === "assosiate project manager" ||
@@ -167,5 +190,15 @@ export function canManageDeliverables(position?: string | null): boolean {
     p.includes("business development head") ||
     p.includes("sales executive") ||
     p.includes("account executive")
-  );
+  ) {
+    return true;
+  }
+
+  // 2. Staff level: Social Media role in Project/Production department
+  if (p === "social media" || p.includes("social media")) {
+    if (!dept) return true; // Default to true if department wasn't passed explicitly
+    return d.includes("project") || d.includes("production");
+  }
+
+  return false;
 }

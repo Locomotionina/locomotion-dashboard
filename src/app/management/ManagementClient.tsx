@@ -150,60 +150,152 @@ export function ManagementClient({
   });
 
   useEffect(() => {
-    // 1. Supabase Realtime Presence Channel
+    // 1. Supabase Realtime Presence Channel & Live Postgres Sync
     const supabase = getSupabaseBrowserClient();
     let channel: any = null;
+
+    const syncPresenceState = () => {
+      if (!channel) return;
+      const state = channel.presenceState();
+      const activeIds = new Set<string>();
+      const taskUpdates: Record<string, any> = {};
+
+      for (const key of Object.keys(state)) {
+        if (key) activeIds.add(key);
+        const presences = (state[key] || []) as any[];
+        for (const p of presences) {
+          if (p?.userId) {
+            activeIds.add(p.userId);
+            if (
+              p.activeTaskId &&
+              p.activeTaskTitle &&
+              (p.isTimerActive || p.status === "On Progress")
+            ) {
+              taskUpdates[p.userId] = {
+                id: p.activeTaskId,
+                title: p.activeTaskTitle,
+                timerActive: Boolean(p.isTimerActive),
+                status: p.isTimerActive ? "On Progress" : "Browsing",
+              };
+            }
+          }
+        }
+      }
+
+      if (activeIds.size > 0) {
+        setOnlineUserIds(activeIds);
+      }
+
+      if (Object.keys(taskUpdates).length > 0) {
+        setLiveActiveTasks((prev) => ({ ...prev, ...taskUpdates }));
+      }
+    };
+
+    const handleTaskPostgresChange = (payload: any) => {
+      const eventType = payload.eventType;
+      const newRecord = payload.new;
+      const oldRecord = payload.old;
+
+      if (eventType === "UPDATE" || eventType === "INSERT") {
+        if (!newRecord) return;
+        const targetUserId = newRecord.userId;
+        if (!targetUserId) return;
+
+        const isNowActive =
+          newRecord.status === "On Progress" || Boolean(newRecord.timerActive);
+
+        if (isNowActive) {
+          // Instantly mutate UI state with new active task title
+          setLiveActiveTasks((prev) => ({
+            ...prev,
+            [targetUserId]: {
+              id: newRecord.id,
+              title: newRecord.title || "Untitled Task",
+              status: newRecord.status,
+              timerActive: Boolean(newRecord.timerActive),
+              projectName:
+                prev[targetUserId]?.id === newRecord.id
+                  ? prev[targetUserId]?.projectName
+                  : null,
+            },
+          }));
+        } else {
+          // Task changed away from 'On Progress' / timer stopped
+          setLiveActiveTasks((prev) => {
+            const current = prev[targetUserId];
+            if (!current || current.id === newRecord.id) {
+              return {
+                ...prev,
+                [targetUserId]: null,
+              };
+            }
+            return prev;
+          });
+        }
+      } else if (eventType === "DELETE") {
+        const deletedId = oldRecord?.id;
+        if (!deletedId) return;
+        setLiveActiveTasks((prev) => {
+          const next = { ...prev };
+          for (const [uId, task] of Object.entries(next)) {
+            if (task && task.id === deletedId) {
+              next[uId] = null;
+            }
+          }
+          return next;
+        });
+      }
+    };
 
     if (supabase) {
       channel = supabase.channel(LOCOMOTION_PRESENCE_CHANNEL);
 
       channel
         .on("presence", { event: "sync" }, () => {
-          const state = channel.presenceState();
-          const activeIds = new Set<string>();
-          const taskUpdates: Record<string, any> = {};
-
-          for (const key of Object.keys(state)) {
-            const presences = state[key] as any[];
-            for (const p of presences) {
-              if (p?.userId) {
-                activeIds.add(p.userId);
-                if (p.activeTaskId && p.activeTaskTitle) {
-                  taskUpdates[p.userId] = {
-                    id: p.activeTaskId,
-                    title: p.activeTaskTitle,
-                    timerActive: Boolean(p.isTimerActive),
-                    status: p.isTimerActive ? "On Progress" : "Browsing",
-                  };
-                }
-              }
-            }
-          }
-
-          setOnlineUserIds((prev) => {
-            const merged = new Set(prev);
-            activeIds.forEach((id) => merged.add(id));
-            return merged;
-          });
-
-          if (Object.keys(taskUpdates).length > 0) {
-            setLiveActiveTasks((prev) => ({ ...prev, ...taskUpdates }));
-          }
+          syncPresenceState();
         })
-        .on("presence", { event: "join" }, ({ newPresences }: any) => {
+        .on("presence", { event: "join" }, ({ key, newPresences }: any) => {
           setOnlineUserIds((prev) => {
             const next = new Set(prev);
-            for (const p of newPresences) {
+            if (key) next.add(key);
+            for (const p of (newPresences || [])) {
               if (p?.userId) next.add(p.userId);
             }
             return next;
           });
+
+          for (const p of (newPresences || [])) {
+            if (
+              p?.userId &&
+              p.activeTaskId &&
+              p.activeTaskTitle &&
+              (p.isTimerActive || p.status === "On Progress")
+            ) {
+              setLiveActiveTasks((prev) => ({
+                ...prev,
+                [p.userId]: {
+                  id: p.activeTaskId,
+                  title: p.activeTaskTitle,
+                  timerActive: Boolean(p.isTimerActive),
+                  status: p.isTimerActive ? "On Progress" : "Browsing",
+                },
+              }));
+            }
+          }
         })
-        .on("presence", { event: "leave" }, ({ leftPresences }: any) => {
+        .on("presence", { event: "leave" }, ({ key, leftPresences }: any) => {
           setOnlineUserIds((prev) => {
             const next = new Set(prev);
-            for (const p of leftPresences) {
-              if (p?.userId) next.delete(p.userId);
+            const currentState = channel?.presenceState() || {};
+            const userKey = key;
+            if (userKey && (!currentState[userKey] || currentState[userKey].length === 0)) {
+              next.delete(userKey);
+            }
+            for (const p of (leftPresences || [])) {
+              const uId = p?.userId;
+              if (uId && (!currentState[uId] || currentState[uId].length === 0)) {
+                next.delete(uId);
+              }
             }
             return next;
           });
@@ -212,10 +304,10 @@ export function ManagementClient({
           if (payload?.userId) {
             setLiveActiveTasks((prev) => ({
               ...prev,
-              [payload.userId]: payload.taskId
+              [payload.userId]: payload.taskId && (payload.timerActive || payload.status === "On Progress")
                 ? {
                     id: payload.taskId,
-                    title: payload.taskTitle,
+                    title: payload.taskTitle || "Untitled Task",
                     timerActive: Boolean(payload.timerActive),
                     status: payload.timerActive ? "On Progress" : "Browsing",
                   }
@@ -223,7 +315,37 @@ export function ManagementClient({
             }));
           }
         })
-        .subscribe();
+        .on(
+          "postgres_changes",
+          {
+            event: "*",
+            schema: "public",
+            table: "Task",
+          },
+          handleTaskPostgresChange
+        )
+        .on(
+          "postgres_changes",
+          {
+            event: "*",
+            schema: "public",
+            table: "tasks",
+          },
+          handleTaskPostgresChange
+        )
+        .subscribe(async (status: string, err?: any) => {
+          if (status === "SUBSCRIBED") {
+            syncPresenceState();
+            await syncTelemetry();
+          } else if (
+            status === "CHANNEL_ERROR" ||
+            status === "TIMED_OUT" ||
+            status === "CLOSED"
+          ) {
+            console.debug(`Supabase realtime channel status: ${status}`, err);
+            await syncTelemetry();
+          }
+        });
     }
 
     // 2. High-performance fallback telemetry sync (runs every 8s, paused if document hidden)
@@ -233,16 +355,31 @@ export function ManagementClient({
         const telemetry = await getLiveStaffTelemetryAction();
         if (telemetry) {
           setOnlineUserIds((prev) => {
-            const next = new Set(prev);
-            for (const id of telemetry.onlineUserIds) {
-              next.add(id);
+            const presenceKeys = channel ? Object.keys(channel.presenceState()) : [];
+            if (presenceKeys.length > 0) {
+              const merged = new Set(presenceKeys);
+              for (const id of telemetry.onlineUserIds) {
+                merged.add(id);
+              }
+              return merged;
+            }
+            return new Set(telemetry.onlineUserIds);
+          });
+
+          setLiveActiveTasks((prev) => {
+            const next = { ...prev };
+            for (const s of staffSummaries) {
+              const serverTask = telemetry.activeTasks[s.id] || null;
+              if (!serverTask) {
+                if (next[s.id] && !next[s.id]?.timerActive) {
+                  next[s.id] = null;
+                }
+              } else {
+                next[s.id] = serverTask;
+              }
             }
             return next;
           });
-          setLiveActiveTasks((prev) => ({
-            ...prev,
-            ...telemetry.activeTasks,
-          }));
         }
       } catch {
         // Silently swallow network / server transition errors
@@ -252,10 +389,29 @@ export function ManagementClient({
     syncTelemetry();
     const pollTimer = setInterval(syncTelemetry, 8000);
 
+    // 3. Reconnection & window focus handler
+    const handleReconnection = () => {
+      if (typeof document !== "undefined" && !document.hidden) {
+        syncPresenceState();
+        syncTelemetry();
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleReconnection);
+    window.addEventListener("focus", handleReconnection);
+    window.addEventListener("online", handleReconnection);
+
     return () => {
       clearInterval(pollTimer);
+      document.removeEventListener("visibilitychange", handleReconnection);
+      window.removeEventListener("focus", handleReconnection);
+      window.removeEventListener("online", handleReconnection);
+
       if (channel) {
-        channel.unsubscribe();
+        channel.unsubscribe?.().catch?.(() => {});
+        if (supabase) {
+          supabase.removeChannel?.(channel).catch?.(() => {});
+        }
       }
     };
   }, []);

@@ -254,11 +254,11 @@ export async function createProjectAction(formData: FormData) {
 
 export async function updateProjectUrlsAction(formData: FormData) {
   const user = await getCurrentUser();
-  if (!user || !canManageDeliverables(user.position)) {
+  if (!user || !canManageDeliverables(user.position, user.department)) {
     return {
       success: false,
       error:
-        "Akses ditolak: Hanya Project Manager, Associate Project Manager, Business Development Head, Sales Executive, dan Account Executive yang berwenang mengubah URL project.",
+        "Akses ditolak: Hanya Project Manager, Associate Project Manager, Business Development Head, Sales Executive, Account Executive, dan Social Media (Project/Production) yang berwenang mengubah URL project.",
     };
   }
 
@@ -306,11 +306,11 @@ export async function updateProjectUrlsAction(formData: FormData) {
 
 export async function updateCategoryUrlsAction(formData: FormData) {
   const user = await getCurrentUser();
-  if (!user || !canManageDeliverables(user.position)) {
+  if (!user || !canManageDeliverables(user.position, user.department)) {
     return {
       success: false,
       error:
-        "Akses ditolak: Hanya Project Manager, Associate Project Manager, Business Development Head, Sales Executive, dan Account Executive yang berwenang mengubah deliverables project.",
+        "Akses ditolak: Hanya Project Manager, Associate Project Manager, Business Development Head, Sales Executive, Account Executive, dan Social Media (Project/Production) yang berwenang mengubah deliverables project.",
     };
   }
 
@@ -495,11 +495,11 @@ export async function updateProjectMetadataAction(formData: FormData) {
 
 export async function addDeliverableAction(formData: FormData) {
   const user = await getCurrentUser();
-  if (!user || !canManageDeliverables(user.position)) {
+  if (!user || !canManageDeliverables(user.position, user.department)) {
     return {
       success: false,
       error:
-        "Akses ditolak: Hanya Project Manager, Associate Project Manager, Business Development Head, Sales Executive, dan Account Executive yang berwenang menambahkan deliverable.",
+        "Akses ditolak: Hanya Project Manager, Associate Project Manager, Business Development Head, Sales Executive, Account Executive, dan Social Media (Project/Production) yang berwenang menambahkan deliverable.",
     };
   }
 
@@ -536,11 +536,11 @@ export async function addDeliverableAction(formData: FormData) {
 
 export async function deleteDeliverableAction(deliverableId: string, projectId: string) {
   const user = await getCurrentUser();
-  if (!user || !canManageDeliverables(user.position)) {
+  if (!user || !canManageDeliverables(user.position, user.department)) {
     return {
       success: false,
       error:
-        "Akses ditolak: Hanya Project Manager, Associate Project Manager, Business Development Head, Sales Executive, dan Account Executive yang berwenang menghapus deliverable.",
+        "Akses ditolak: Hanya Project Manager, Associate Project Manager, Business Development Head, Sales Executive, Account Executive, dan Social Media (Project/Production) yang berwenang menghapus deliverable.",
     };
   }
 
