@@ -85,7 +85,7 @@ export async function sendNotificationEmail({
     return { success: false, reason: "NO_API_KEY" };
   }
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://locomotiondashboardtracker.web.id";
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
   const fullLink = link
     ? link.startsWith("http")
       ? link
@@ -93,7 +93,7 @@ export async function sendNotificationEmail({
     : appUrl;
 
   const typeConfig = getTypeConfig(type);
-  const senderEmail = process.env.EMAIL_FROM || "Locomotion Agency <notifications@locomotiondashboardtracker.web.id>";
+  const senderEmail = process.env.EMAIL_FROM || "Locomotion Agency <onboarding@resend.dev>";
 
   try {
     const { data, error } = await resend.emails.send({
