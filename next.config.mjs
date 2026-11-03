@@ -5,6 +5,8 @@ const nextConfig = {
 
   // Mengizinkan cross-origin requests saat mode dev dari jaringan lokal (LAN) maupun IP publik
   allowedDevOrigins: [
+    'locomotiondashboardtracker.web.id',
+    'www.locomotiondashboardtracker.web.id',
     '43.163.113.38',
     '43.163.113.38:3000',
     'localhost',
@@ -19,6 +21,8 @@ const nextConfig = {
   experimental: {
     serverActions: {
       allowedOrigins: [
+        'locomotiondashboardtracker.web.id',
+        'www.locomotiondashboardtracker.web.id',
         '43.163.113.38',
         '43.163.113.38:3000',
         'localhost',
