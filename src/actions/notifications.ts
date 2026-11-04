@@ -26,13 +26,25 @@ const EMAIL_TRIGGER_EVENT_TYPES = new Set([
   "TASK_APPROVED",
 ]);
 
-interface CreateNotificationParams {
+export interface CreateNotificationParams {
   userId: string;
   title: string;
   message: string;
   type?: NotificationType;
   link?: string;
   taskId?: string;
+  actorName?: string;
+  taskTitle?: string;
+  projectName?: string;
+  outputType?: string;
+  priority?: string;
+  dueDate?: Date | string | null;
+  estimatedHours?: number | null;
+  reviewerNames?: string[] | string | null;
+  brief?: string | null;
+  revisionRound?: number | null;
+  revisionNote?: string | null;
+  revisionAuthor?: string | null;
 }
 
 export async function createNotification(params: CreateNotificationParams) {
@@ -70,6 +82,19 @@ export async function createNotification(params: CreateNotificationParams) {
           message: params.message,
           link: params.link,
           type: params.type as TaskEmailEventType,
+          taskId: params.taskId,
+          actorName: params.actorName,
+          taskTitle: params.taskTitle,
+          projectName: params.projectName,
+          outputType: params.outputType,
+          priority: params.priority,
+          dueDate: params.dueDate,
+          estimatedHours: params.estimatedHours,
+          reviewerNames: params.reviewerNames,
+          brief: params.brief,
+          revisionRound: params.revisionRound,
+          revisionNote: params.revisionNote,
+          revisionAuthor: params.revisionAuthor,
         }).catch((mailErr) => {
           console.error("[Resend] Gagal mengirim notifikasi email:", mailErr);
         });

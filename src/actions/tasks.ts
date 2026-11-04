@@ -82,6 +82,13 @@ export async function createTaskAction(formData: FormData) {
       type: "TASK_ASSIGNED",
       link: "/dashboard?tab=active",
       taskId: task.id,
+      actorName: currentUser.name,
+      taskTitle: task.title,
+      brief: task.description,
+      outputType: task.taskOutputType || undefined,
+      priority: task.priority,
+      dueDate: task.dueDate,
+      estimatedHours: task.estimatedHours,
     });
   }
 
@@ -386,6 +393,16 @@ export async function deliverTaskAction(
           type: eventType,
           link: "/dashboard?tab=delivered",
           taskId: task.id,
+          actorName: currentUser.name,
+          taskTitle: task.title,
+          brief: isRevision ? undefined : (description.trim() || task.description),
+          outputType: task.taskOutputType || undefined,
+          priority: task.priority,
+          dueDate: task.dueDate,
+          estimatedHours: task.estimatedHours,
+          revisionRound: task.currentRevisionRound,
+          revisionNote: isRevision ? (description.trim() || undefined) : undefined,
+          revisionAuthor: currentUser.name,
         }).catch((e) => console.error("Notification delivery failed:", e));
       }
     }
@@ -552,6 +569,16 @@ export async function requestTaskPreviewAction(
         type: eventType,
         link: `/dashboard?tab=reviews&taskId=${task.id}`,
         taskId: task.id,
+        actorName: currentUser.name,
+        taskTitle: task.title,
+        brief: isRevision ? undefined : (description.trim() || task.description),
+        outputType: task.taskOutputType || undefined,
+        priority: task.priority,
+        dueDate: task.dueDate,
+        estimatedHours: task.estimatedHours,
+        revisionRound: task.currentRevisionRound,
+        revisionNote: isRevision ? (description.trim() || undefined) : undefined,
+        revisionAuthor: currentUser.name,
       }).catch((e) => console.error("Notification creation failed:", e));
     }
 
@@ -876,6 +903,15 @@ export async function requestRevisionAction(
         type: "TASK_REVISION",
         link: "/dashboard?tab=active",
         taskId: task.id,
+        actorName: currentUser.name,
+        taskTitle: task.title,
+        outputType: task.taskOutputType || undefined,
+        priority: task.priority,
+        dueDate: task.dueDate,
+        estimatedHours: task.estimatedHours,
+        revisionRound: targetRound,
+        revisionNote: feedback.trim(),
+        revisionAuthor: currentUser.name,
       }).catch((e) => console.error("Notification creation failed:", e));
     }
 
@@ -1033,6 +1069,15 @@ export async function approveTaskAction(taskId: string) {
             type: "TASK_APPROVED",
             link: "/dashboard?tab=archive",
             taskId: task.id,
+            actorName: currentUser.name,
+            taskTitle: task.title,
+            outputType: task.taskOutputType || undefined,
+            priority: task.priority,
+            dueDate: task.dueDate,
+            estimatedHours: task.estimatedHours,
+            revisionRound: task.currentRevisionRound,
+            revisionNote: "Task telah melalui proses peninjauan dan secara resmi disetujui tanpa catatan revisi tambahan. Status resmi menjadi Done.",
+            revisionAuthor: currentUser.name,
           }).catch((e) => console.error("Notification creation failed:", e));
         }
       }
@@ -1107,6 +1152,13 @@ export async function updateTaskStatusAction(taskId: string, newStatus: string) 
           type: "TASK_DELIVERED",
           link: "/dashboard?tab=delivered",
           taskId: task.id,
+          actorName: currentUser.name,
+          taskTitle: task.title,
+          brief: task.description,
+          outputType: task.taskOutputType || undefined,
+          priority: task.priority,
+          dueDate: task.dueDate,
+          estimatedHours: task.estimatedHours,
         }).catch((e) => console.error(e));
       }
     }
@@ -1185,6 +1237,13 @@ export async function updateTaskAction(formData: FormData) {
         type: "TASK_ASSIGNED",
         link: "/dashboard?tab=active",
         taskId: task.id,
+        actorName: currentUser.name,
+        taskTitle: title.trim(),
+        brief: task.description,
+        outputType: task.taskOutputType || undefined,
+        priority: priority || task.priority,
+        dueDate: dueDateStr ? new Date(dueDateStr) : task.dueDate,
+        estimatedHours: isNaN(estimatedHours) ? task.estimatedHours : estimatedHours,
       }).catch((e) => console.error(e));
     }
 
