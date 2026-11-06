@@ -37,7 +37,7 @@ import {
   Layers,
   Sparkles,
 } from "lucide-react";
-import { formatDate, formatRelativeDays } from "@/lib/utils";
+import { formatDate, formatRelativeDays, renderTextWithLinks } from "@/lib/utils";
 import { countCategoryUrls } from "@/lib/deliverables";
 import { canDeleteProject } from "@/lib/departments";
 import { deleteProjectAction } from "@/actions/projects";
@@ -857,9 +857,9 @@ export function ProjectBoardClient({ projects, currentUser }: ProjectBoardClient
                           <FileText className="h-3.5 w-3.5 text-indigo-400" />
                           <span>Client Brief</span>
                         </span>
-                        <p className="text-muted-foreground whitespace-pre-wrap leading-relaxed bg-secondary/30 p-3 rounded-xl border border-border/40">
-                          {detailProject.brief}
-                        </p>
+                        <div className="text-muted-foreground whitespace-pre-wrap break-words max-h-40 overflow-y-auto custom-scrollbar leading-relaxed bg-secondary/30 p-3 rounded-xl border border-border/40 text-xs">
+                          {renderTextWithLinks(detailProject.brief)}
+                        </div>
                       </div>
                     )}
 
@@ -869,9 +869,9 @@ export function ProjectBoardClient({ projects, currentUser }: ProjectBoardClient
                           <Target className="h-3.5 w-3.5 text-purple-400" />
                           <span>Strategic Goals & KPIs</span>
                         </span>
-                        <p className="text-muted-foreground whitespace-pre-wrap leading-relaxed bg-secondary/30 p-3 rounded-xl border border-border/40">
-                          {detailProject.goals}
-                        </p>
+                        <div className="text-muted-foreground whitespace-pre-wrap break-words max-h-40 overflow-y-auto custom-scrollbar leading-relaxed bg-secondary/30 p-3 rounded-xl border border-border/40 text-xs">
+                          {renderTextWithLinks(detailProject.goals)}
+                        </div>
                       </div>
                     )}
 
@@ -881,9 +881,9 @@ export function ProjectBoardClient({ projects, currentUser }: ProjectBoardClient
                           <Layers className="h-3.5 w-3.5 text-cyan-400" />
                           <span>Agency Execution Scope</span>
                         </span>
-                        <p className="text-muted-foreground whitespace-pre-wrap leading-relaxed bg-secondary/30 p-3 rounded-xl border border-border/40">
-                          {detailProject.description}
-                        </p>
+                        <div className="text-muted-foreground whitespace-pre-wrap break-words max-h-40 overflow-y-auto custom-scrollbar leading-relaxed bg-secondary/30 p-3 rounded-xl border border-border/40 text-xs">
+                          {renderTextWithLinks(detailProject.description)}
+                        </div>
                       </div>
                     )}
                   </div>

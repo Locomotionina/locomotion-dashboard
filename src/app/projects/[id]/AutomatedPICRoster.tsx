@@ -34,7 +34,7 @@ import {
   FileText,
   ListTodo,
 } from "lucide-react";
-import { formatDate, formatRelativeDays } from "@/lib/utils";
+import { formatDate, formatRelativeDays, renderTextWithLinks } from "@/lib/utils";
 
 interface TaskUserSummary {
   id: string;
@@ -530,8 +530,8 @@ export function AutomatedPICRoster({ pics, tasks }: AutomatedPICRosterProps) {
                               </div>
 
                               {task.description && (
-                                <p className="text-[11px] text-muted-foreground line-clamp-1 font-normal">
-                                  {task.description}
+                                <p className="text-[11px] text-muted-foreground line-clamp-1 font-normal break-words">
+                                  {renderTextWithLinks(task.description)}
                                 </p>
                               )}
 
@@ -676,8 +676,8 @@ export function AutomatedPICRoster({ pics, tasks }: AutomatedPICRosterProps) {
                     </span>
                   </div>
                   {selectedTask.previewDescription && (
-                    <div className="bg-card/90 p-2.5 rounded-lg border border-purple-500/20 text-foreground italic text-xs leading-relaxed">
-                      &ldquo;{selectedTask.previewDescription}&rdquo;
+                    <div className="bg-card/90 p-2.5 rounded-lg border border-purple-500/20 text-foreground italic text-xs leading-relaxed max-h-36 overflow-y-auto whitespace-pre-wrap break-words custom-scrollbar">
+                      &ldquo;{renderTextWithLinks(selectedTask.previewDescription)}&rdquo;
                     </div>
                   )}
                 </div>
@@ -706,8 +706,10 @@ export function AutomatedPICRoster({ pics, tasks }: AutomatedPICRosterProps) {
                   <FileText className="h-3.5 w-3.5 text-indigo-500" />
                   <span>Deskripsi / Brief Task</span>
                 </span>
-                <div className="p-3 rounded-xl bg-secondary/30 border border-border/40 text-xs text-muted-foreground leading-relaxed whitespace-pre-line">
-                  {selectedTask.description || (
+                <div className="p-3 rounded-xl bg-secondary/30 border border-border/40 text-xs text-muted-foreground leading-relaxed whitespace-pre-wrap break-words max-h-48 overflow-y-auto custom-scrollbar">
+                  {selectedTask.description ? (
+                    renderTextWithLinks(selectedTask.description)
+                  ) : (
                     <span className="italic text-muted-foreground/60">
                       Tidak ada deskripsi rinci untuk task ini.
                     </span>

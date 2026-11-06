@@ -88,7 +88,7 @@ import {
   Download,
   Eye,
 } from "lucide-react";
-import { formatDate, formatRelativeDays } from "@/lib/utils";
+import { formatDate, formatRelativeDays, renderTextWithLinks } from "@/lib/utils";
 import { StaffReportModal } from "@/components/StaffReportModal";
 import { TaskTimerPill } from "@/components/TaskTimerPill";
 import { TaskRecapBreakdown } from "@/components/TaskRecapBreakdown";
@@ -3023,13 +3023,13 @@ export function StaffDashboardClient({
 
                           {task.description ? (
                             <div>
-                              <p
-                                className={`text-sm text-foreground/90 leading-relaxed font-normal whitespace-pre-line transition-all duration-200 ${
+                              <div
+                                className={`text-sm text-foreground/90 leading-relaxed font-normal whitespace-pre-wrap break-words transition-all duration-200 ${
                                   !isBriefExpanded && isBriefLong ? "line-clamp-2" : ""
                                 }`}
                               >
-                                {task.description}
-                              </p>
+                                {renderTextWithLinks(task.description)}
+                              </div>
                               {isBriefLong && (
                                 <button
                                   type="button"
@@ -3091,9 +3091,9 @@ export function StaffDashboardClient({
                                         {isReviewPhase ? "Dalam Review" : "Harap Dikerjakan"}
                                       </Badge>
                                     </div>
-                                    <p className="text-xs sm:text-sm text-foreground bg-card/90 p-3 rounded-lg border border-rose-500/20 font-medium whitespace-pre-line leading-relaxed">
-                                      &ldquo;{rev.feedback}&rdquo;
-                                    </p>
+                                    <div className="text-xs sm:text-sm text-foreground bg-card/90 p-3 rounded-lg border border-rose-500/20 font-medium whitespace-pre-wrap break-words max-h-36 overflow-y-auto custom-scrollbar leading-relaxed">
+                                      &ldquo;{renderTextWithLinks(rev.feedback)}&rdquo;
+                                    </div>
                                   </div>
                                 );
                               })}
@@ -3116,9 +3116,9 @@ export function StaffDashboardClient({
                               <Badge variant="purple" className="text-[10px] shrink-0">In Review</Badge>
                             </div>
                             {task.previewDescription && (
-                              <p className="text-xs bg-card/80 p-2.5 rounded-lg border border-purple-500/20 text-foreground font-medium italic whitespace-pre-line">
-                                &ldquo;{task.previewDescription}&rdquo;
-                              </p>
+                              <div className="text-xs bg-card/80 p-2.5 rounded-lg border border-purple-500/20 text-foreground font-medium italic whitespace-pre-wrap break-words max-h-36 overflow-y-auto custom-scrollbar">
+                                &ldquo;{renderTextWithLinks(task.previewDescription)}&rdquo;
+                              </div>
                             )}
                           </div>
                         )}
@@ -3130,9 +3130,9 @@ export function StaffDashboardClient({
                               <MessageSquare className="h-3.5 w-3.5 shrink-0" />
                               <span>Catatan Request Preview Terakhir:</span>
                             </div>
-                            <p className="text-foreground/90 font-medium italic whitespace-pre-line">
-                              &ldquo;{task.previewDescription}&rdquo;
-                            </p>
+                            <div className="text-foreground/90 font-medium italic whitespace-pre-wrap break-words max-h-36 overflow-y-auto custom-scrollbar">
+                              &ldquo;{renderTextWithLinks(task.previewDescription)}&rdquo;
+                            </div>
                           </div>
                         )}
 
@@ -3560,13 +3560,13 @@ export function StaffDashboardClient({
                             </span>
                             <Badge variant="purple" className="text-[10px]">Preview Request</Badge>
                           </div>
-                          <p className="text-xs sm:text-sm text-foreground bg-card/90 p-2.5 rounded-lg border border-purple-500/20 font-medium whitespace-pre-line">
+                          <div className="text-xs sm:text-sm text-foreground bg-card/90 p-2.5 rounded-lg border border-purple-500/20 font-medium whitespace-pre-wrap break-words max-h-36 overflow-y-auto custom-scrollbar">
                             {task.previewDescription ? (
-                              task.previewDescription
+                              renderTextWithLinks(task.previewDescription)
                             ) : (
                               <span className="text-muted-foreground italic">Tidak ada catatan instruksi khusus dari pemohon.</span>
                             )}
-                          </p>
+                          </div>
                         </div>
 
                         {/* BRIEF ASLI TASK (Dapat di-expand) */}
@@ -3611,13 +3611,13 @@ export function StaffDashboardClient({
 
                               {task.description ? (
                                 <div>
-                                  <p
-                                    className={`text-xs text-foreground/90 leading-relaxed font-normal whitespace-pre-line transition-all duration-200 ${
+                                  <div
+                                    className={`text-xs text-foreground/90 leading-relaxed font-normal whitespace-pre-wrap break-words transition-all duration-200 ${
                                       !isBriefExpanded && isBriefLong ? "line-clamp-2" : ""
                                     }`}
                                   >
-                                    {task.description}
-                                  </p>
+                                    {renderTextWithLinks(task.description)}
+                                  </div>
                                   {isBriefLong && (
                                     <button
                                       type="button"
@@ -3677,9 +3677,9 @@ export function StaffDashboardClient({
                                         </Badge>
                                       )}
                                     </div>
-                                    <p className="text-xs sm:text-sm text-foreground bg-card/90 p-3 rounded-lg border border-rose-500/20 font-medium whitespace-pre-line leading-relaxed">
-                                      &ldquo;{rev.feedback}&rdquo;
-                                    </p>
+                                    <div className="text-xs sm:text-sm text-foreground bg-card/90 p-3 rounded-lg border border-rose-500/20 font-medium whitespace-pre-wrap break-words max-h-36 overflow-y-auto custom-scrollbar leading-relaxed">
+                                      &ldquo;{renderTextWithLinks(rev.feedback)}&rdquo;
+                                    </div>
                                   </div>
                                 );
                               })}
@@ -4100,13 +4100,13 @@ export function StaffDashboardClient({
 
                               {task.description ? (
                                 <div>
-                                  <p
-                                    className={`text-sm text-foreground/90 leading-relaxed font-normal whitespace-pre-line transition-all duration-200 ${
+                                  <div
+                                    className={`text-sm text-foreground/90 leading-relaxed font-normal whitespace-pre-wrap break-words transition-all duration-200 ${
                                       !isBriefExpanded && isBriefLong ? "line-clamp-2" : ""
                                     }`}
                                   >
-                                    {task.description}
-                                  </p>
+                                    {renderTextWithLinks(task.description)}
+                                  </div>
                                   {isBriefLong && (
                                     <button
                                       type="button"
@@ -4171,9 +4171,9 @@ export function StaffDashboardClient({
                                         </Badge>
                                       )}
                                     </div>
-                                    <p className="text-xs sm:text-sm text-foreground bg-card/90 p-3 rounded-lg border border-rose-500/20 font-medium whitespace-pre-line leading-relaxed">
-                                      &ldquo;{rev.feedback}&rdquo;
-                                    </p>
+                                    <div className="text-xs sm:text-sm text-foreground bg-card/90 p-3 rounded-lg border border-rose-500/20 font-medium whitespace-pre-wrap break-words max-h-36 overflow-y-auto custom-scrollbar leading-relaxed">
+                                      &ldquo;{renderTextWithLinks(rev.feedback)}&rdquo;
+                                    </div>
                                   </div>
                                 );
                               })}
@@ -4274,9 +4274,9 @@ export function StaffDashboardClient({
                                     <MessageSquare className="h-3 w-3" />
                                     <span>Catatan Deliver dari Staf:</span>
                                   </span>
-                                  <p className="text-foreground font-medium whitespace-pre-line italic">
-                                    &ldquo;{task.previewDescription}&rdquo;
-                                  </p>
+                                  <div className="text-foreground font-medium whitespace-pre-wrap break-words max-h-36 overflow-y-auto custom-scrollbar italic">
+                                    &ldquo;{renderTextWithLinks(task.previewDescription)}&rdquo;
+                                  </div>
                                 </div>
                               )}
 
@@ -4659,11 +4659,11 @@ export function StaffDashboardClient({
                             </div>
 
                             {task.description ? (
-                              <p className={`text-xs text-foreground/90 leading-relaxed font-normal whitespace-pre-line ${
+                              <div className={`text-xs text-foreground/90 leading-relaxed font-normal whitespace-pre-wrap break-words ${
                                 !isBriefExpanded && isBriefLong ? "line-clamp-2" : ""
                               }`}>
-                                {task.description}
-                              </p>
+                                {renderTextWithLinks(task.description)}
+                              </div>
                             ) : (
                               <p className="text-xs text-muted-foreground italic">
                                 Belum ada instruksi brief tertulis khusus.
@@ -4707,9 +4707,9 @@ export function StaffDashboardClient({
                                         </span>
                                         <Badge variant="destructive" className="text-[10px] uppercase font-bold py-0">Sedang Direvisi</Badge>
                                       </div>
-                                      <p className="text-xs text-foreground bg-card/90 p-2 rounded-lg border border-rose-500/20 font-medium whitespace-pre-line leading-relaxed">
-                                        &ldquo;{rev.feedback}&rdquo;
-                                      </p>
+                                      <div className="text-xs text-foreground bg-card/90 p-2 rounded-lg border border-rose-500/20 font-medium whitespace-pre-wrap break-words max-h-36 overflow-y-auto custom-scrollbar leading-relaxed">
+                                        &ldquo;{renderTextWithLinks(rev.feedback)}&rdquo;
+                                      </div>
                                     </div>
                                   );
                                 })}

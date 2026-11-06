@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { Clock, History, Calendar, CheckCircle2, Play, Pause, AlertCircle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { renderTextWithLinks } from "@/lib/utils";
 
 interface TaskRevisionItem {
   id: string;
@@ -322,9 +323,9 @@ export function TaskRecapBreakdown({ task }: TaskRecapBreakdownProps) {
 
                   {/* Feedback quote */}
                   {rev.feedback && (
-                    <p className="text-[11px] text-muted-foreground italic bg-secondary/40 p-2 rounded-lg border border-border/30 line-clamp-2 leading-relaxed">
-                      &ldquo;{rev.feedback}&rdquo;
-                    </p>
+                    <div className="text-[11px] text-muted-foreground italic bg-secondary/40 p-2 rounded-lg border border-border/30 max-h-36 overflow-y-auto whitespace-pre-wrap break-words custom-scrollbar leading-relaxed">
+                      &ldquo;{renderTextWithLinks(rev.feedback)}&rdquo;
+                    </div>
                   )}
 
                   {/* Structured Revision Session Log */}
