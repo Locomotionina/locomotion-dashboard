@@ -121,6 +121,7 @@ export function getTierBadgeLabel(tier: AccountTier): string {
  * - Account Executive (AE)
  * - Project Manager (PM)
  *
+ * NOTE: Associate Project Manager (APM) is strictly excluded and does NOT have deletion rights.
  * For all other roles/positions, access is strictly denied.
  */
 export function canDeleteProject(
@@ -131,6 +132,16 @@ export function canDeleteProject(
   const pos = (user.position || "").trim().toLowerCase();
   const role = (user.role || "").trim().toLowerCase();
 
+  // Explicitly exclude Associate Project Manager (APM)
+  if (
+    pos.includes("associate") ||
+    pos.includes("assosiate") ||
+    pos === "apm" ||
+    role === "apm"
+  ) {
+    return false;
+  }
+
   // 1. Account Executive (AE)
   const isAE =
     pos === "account executive" ||
@@ -139,14 +150,13 @@ export function canDeleteProject(
     role === "account executive" ||
     role === "ae";
 
-  // 2. Project Manager (PM)
+  // 2. Project Manager (PM) - strictly PM, not APM
   const isPM =
     pos === "project manager" ||
-    pos === "associate project manager" ||
     pos === "pm" ||
-    pos.includes("project manager") ||
     role === "project manager" ||
-    role === "pm";
+    role === "pm" ||
+    (pos.includes("project manager") && !pos.includes("associate") && !pos.includes("assosiate"));
 
   return isAE || isPM;
 }
