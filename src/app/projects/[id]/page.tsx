@@ -110,7 +110,7 @@ export default async function ProjectDetailPage({
               </span>
             </div>
             <span className="text-[10px] text-muted-foreground">
-              {doneTasks.length} of {totalTasks} tasks complete
+              {doneTasks.length} of {totalTasks} {totalTasks === 1 ? "deliverable" : "deliverables"} complete
             </span>
           </div>
         </div>

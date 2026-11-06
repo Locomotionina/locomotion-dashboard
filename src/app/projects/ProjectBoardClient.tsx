@@ -62,6 +62,12 @@ interface ProjectItem {
   finalAssetsUrl: string | null;
   activeTasksCount: number;
   doneTasksCount: number;
+  deliverablesCount?: number;
+  tasks?: {
+    id: string;
+    status: string;
+    taskOutputType?: string | null;
+  }[];
   pics: {
     id: string;
     name: string;
@@ -570,11 +576,11 @@ export function ProjectBoardClient({ projects, currentUser }: ProjectBoardClient
                 : 0;
 
             const deliverablesCount =
-              countCategoryUrls(project.previewUrl) +
-              countCategoryUrls(project.pitchDeckUrl) +
-              countCategoryUrls(project.creativeDeckUrl) +
-              countCategoryUrls(project.finalAssetsUrl) +
-              project._count.deliverables;
+              typeof project.deliverablesCount === "number"
+                ? project.deliverablesCount
+                : (project.tasks?.filter((t) => t.taskOutputType && t.taskOutputType.trim().length > 0).length ||
+                   project._count.tasks ||
+                   0);
 
             return (
               <Card
@@ -689,7 +695,7 @@ export function ProjectBoardClient({ projects, currentUser }: ProjectBoardClient
                       </span>
                     </span>
                     <span className="text-[11px] font-medium bg-secondary/80 px-2.5 py-0.5 rounded-full">
-                      {deliverablesCount} Deliverables
+                      {deliverablesCount} {deliverablesCount === 1 ? "Deliverable" : "Deliverables"}
                     </span>
                   </div>
 
@@ -738,11 +744,11 @@ export function ProjectBoardClient({ projects, currentUser }: ProjectBoardClient
                 ? Math.round((detailProject.doneTasksCount / totalTasks) * 100)
                 : 0;
             const deliverablesCount =
-              countCategoryUrls(detailProject.previewUrl) +
-              countCategoryUrls(detailProject.pitchDeckUrl) +
-              countCategoryUrls(detailProject.creativeDeckUrl) +
-              countCategoryUrls(detailProject.finalAssetsUrl) +
-              (detailProject._count?.deliverables || 0);
+              typeof detailProject.deliverablesCount === "number"
+                ? detailProject.deliverablesCount
+                : (detailProject.tasks?.filter((t) => t.taskOutputType && t.taskOutputType.trim().length > 0).length ||
+                   detailProject._count?.tasks ||
+                   0);
 
             return (
               <>
@@ -796,7 +802,7 @@ export function ProjectBoardClient({ projects, currentUser }: ProjectBoardClient
                           Task Progress
                         </span>
                         <span className="font-bold text-foreground">
-                          {detailProject.doneTasksCount}/{totalTasks} tasks ({progress}%)
+                          {detailProject.doneTasksCount}/{totalTasks} tasks ({progress}%) • {deliverablesCount} {deliverablesCount === 1 ? "Deliverable" : "Deliverables"}
                         </span>
                       </div>
                       <Progress
