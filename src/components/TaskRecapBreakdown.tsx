@@ -139,15 +139,18 @@ export function TaskRecapBreakdown({ task }: TaskRecapBreakdownProps) {
         return (
           <div
             key={session.id || idx}
-            className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 p-2 rounded-lg bg-card/90 border border-border/40 text-[11px]"
+            className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 p-2 rounded-lg bg-card/90 border border-border/40 text-[11px]"
           >
-            <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+            <div className="flex items-center gap-2 flex-wrap min-w-0">
               <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${isSessionRunning ? "bg-emerald-500 animate-pulse" : "bg-blue-500"}`} />
               <span className="font-semibold text-foreground">Sesi {idx + 1}:</span>
-              <span className="font-mono text-foreground break-all">
-                Start: <strong className="font-bold">{startStr}</strong> - Stop: <strong className="font-bold">{stopStr}</strong>
+              <span className="font-mono text-muted-foreground break-all">
+                Rentang: <strong className="text-foreground">{startStr}</strong> - <strong className="text-foreground">{stopStr}</strong>
               </span>
-              <span className="text-blue-600 dark:text-blue-400 font-medium">
+              <span className="font-mono font-bold text-blue-600 dark:text-blue-400">
+                {formatDurationHms(dur)}
+              </span>
+              <span className="text-muted-foreground text-[10px]">
                 ({formatDurationReadable(dur)})
               </span>
             </div>
@@ -176,20 +179,28 @@ export function TaskRecapBreakdown({ task }: TaskRecapBreakdownProps) {
       items.push(
         <div
           key="draft-session-1"
-          className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 p-2 rounded-lg bg-card/90 border border-border/40 text-[11px]"
+          className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-2.5 rounded-lg bg-card/90 border border-border/40 text-[11px]"
         >
-          <div className="flex items-center gap-1.5 flex-wrap min-w-0">
-            <span className="h-1.5 w-1.5 rounded-full bg-blue-500 shrink-0" />
-            <span className="font-semibold text-foreground">Sesi 1:</span>
-            <span className="font-mono text-foreground break-all">
-              Start: <strong className="font-bold">{formatSessionTime(baseStart)}</strong> - Stop: <strong className="font-bold">{formatSessionTime(baseStop)}</strong>
-            </span>
-            <span className="text-blue-600 dark:text-blue-400 font-medium">
-              ({formatDurationReadable(task.initialSeconds)})
-            </span>
+          <div className="flex flex-col sm:flex-row sm:items-center gap-1.5 sm:gap-3 min-w-0 flex-wrap">
+            <div className="flex items-center gap-1.5">
+              <span className="h-2 w-2 rounded-full bg-blue-500 shrink-0" />
+              <span className="font-semibold text-foreground">Waktu Aktif:</span>
+              <strong className="text-blue-600 dark:text-blue-400 font-bold font-mono">
+                {formatDurationHms(task.initialSeconds)}
+              </strong>
+              <span className="text-muted-foreground">
+                ({formatDurationReadable(task.initialSeconds)})
+              </span>
+            </div>
+            <div className="flex items-center gap-1 text-muted-foreground font-mono text-[10px] bg-secondary/50 px-2 py-0.5 rounded border border-border/30">
+              <span>Rentang Sesi:</span>
+              <strong className="text-foreground">{formatSessionTime(baseStart)}</strong>
+              <span>-</span>
+              <strong className="text-foreground">{formatSessionTime(baseStop)}</strong>
+            </div>
           </div>
           <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-secondary text-muted-foreground shrink-0 self-start sm:self-auto">
-            Selesai / Terjeda
+            Akumulasi Stopwatch
           </span>
         </div>
       );
@@ -200,17 +211,25 @@ export function TaskRecapBreakdown({ task }: TaskRecapBreakdownProps) {
       items.push(
         <div
           key="draft-session-active"
-          className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 p-2 rounded-lg bg-emerald-500/5 border border-emerald-500/25 text-[11px]"
+          className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-2.5 rounded-lg bg-emerald-500/5 border border-emerald-500/25 text-[11px]"
         >
-          <div className="flex items-center gap-1.5 flex-wrap min-w-0">
-            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse shrink-0" />
-            <span className="font-semibold text-foreground">Sesi Aktif:</span>
-            <span className="font-mono text-foreground break-all">
-              Start: <strong className="font-bold">{formatSessionTime(task.timerStartedAt)}</strong> - Stop: <strong className="font-bold text-emerald-600 dark:text-emerald-400">Sekarang</strong>
-            </span>
-            <span className="text-emerald-600 dark:text-emerald-400 font-bold">
-              ({formatDurationReadable(draftLiveElapsed)})
-            </span>
+          <div className="flex flex-col sm:flex-row sm:items-center gap-1.5 sm:gap-3 min-w-0 flex-wrap">
+            <div className="flex items-center gap-1.5">
+              <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+              <span className="font-semibold text-foreground">Sesi Aktif:</span>
+              <strong className="text-emerald-600 dark:text-emerald-400 font-bold font-mono">
+                {formatDurationHms(draftLiveElapsed)}
+              </strong>
+              <span className="text-emerald-600 dark:text-emerald-400 font-medium">
+                ({formatDurationReadable(draftLiveElapsed)})
+              </span>
+            </div>
+            <div className="flex items-center gap-1 text-muted-foreground font-mono text-[10px] bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
+              <span>Mulai:</span>
+              <strong className="text-foreground">{formatSessionTime(task.timerStartedAt)}</strong>
+              <span>-</span>
+              <strong className="text-emerald-600 dark:text-emerald-400">Sekarang</strong>
+            </div>
           </div>
           <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 shrink-0 self-start sm:self-auto">
             Sedang Berjalan
@@ -330,23 +349,31 @@ export function TaskRecapBreakdown({ task }: TaskRecapBreakdownProps) {
 
                   {/* Structured Revision Session Log */}
                   <div className="space-y-1 pt-1 border-t border-border/30">
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 p-2 rounded-lg bg-secondary/40 border border-border/40 text-[11px]">
-                      <div className="flex items-center gap-1.5 flex-wrap min-w-0">
-                        <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${isRevActive ? "bg-emerald-500 animate-pulse" : "bg-purple-500"}`} />
-                        <span className="font-semibold text-foreground">Sesi Pengerjaan:</span>
-                        <span className="font-mono text-foreground break-all">
-                          Start: <strong className="font-bold">{formatSessionTime(revStart)}</strong> - Stop: <strong className="font-bold">{revStop}</strong>
-                        </span>
-                        <span className="text-purple-600 dark:text-purple-400 font-semibold">
-                          ({formatDurationReadable(revTotal)})
-                        </span>
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-2.5 rounded-lg bg-secondary/40 border border-border/40 text-[11px]">
+                      <div className="flex flex-col sm:flex-row sm:items-center gap-1.5 sm:gap-3 min-w-0 flex-wrap">
+                        <div className="flex items-center gap-1.5">
+                          <span className={`h-2 w-2 rounded-full shrink-0 ${isRevActive ? "bg-emerald-500 animate-pulse" : "bg-purple-500"}`} />
+                          <span className="font-semibold text-foreground">Waktu Aktif:</span>
+                          <strong className="text-purple-600 dark:text-purple-400 font-bold font-mono">
+                            {formatDurationHms(revTotal)}
+                          </strong>
+                          <span className="text-muted-foreground">
+                            ({formatDurationReadable(revTotal)})
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1 text-muted-foreground font-mono text-[10px] bg-card/60 px-2 py-0.5 rounded border border-border/30">
+                          <span>Rentang Revisi:</span>
+                          <strong className="text-foreground">{formatSessionTime(revStart)}</strong>
+                          <span>-</span>
+                          <strong className="text-foreground">{revStop}</strong>
+                        </div>
                       </div>
                       <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0 self-start sm:self-auto ${
                         isRevActive
                           ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30"
                           : "bg-secondary text-muted-foreground"
                       }`}>
-                        {isRevActive ? "Sedang Berjalan" : "Tercatat"}
+                        {isRevActive ? "Sedang Berjalan" : "Akumulasi Stopwatch"}
                       </span>
                     </div>
                   </div>
