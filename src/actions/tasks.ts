@@ -969,126 +969,85 @@ export async function approveTaskAction(taskId: string) {
       return { success: false, error: "Unauthorized to approve this task" };
     }
 
-    const pendingRevisions = task.revisions.filter((r) => r.status === "PENDING");
-    const targetRound = pendingRevisions.length > 0
-      ? pendingRevisions[0].round
-      : (task.status === "In Review" ? (task.currentRevisionRound || 0) + 1 : Math.max(task.currentRevisionRound || 1, 1));
+    const now = new Date();
+    const rawElapsed = task.timerActive && task.timerStartedAt
+      ? Math.floor((now.getTime() - new Date(task.timerStartedAt).getTime()) / 1000)
+      : 0;
+    const elapsed = Math.max(0, isNaN(rawElapsed) ? 0 : rawElapsed);
 
-    // Record approval from current reviewer
-    const existingUserRevision = task.revisions.find(
-      (r) => r.round === targetRound && r.authorId === currentUser.id
-    );
+    // 1. Resolve all open review steps across all assigned reviewers:
+    // Mark any open, pending, delivered, or in-progress revision records as APPROVED
+    await prisma.taskRevision.updateMany({
+      where: {
+        taskId,
+        status: { in: ["PENDING", "DELIVERED", "IN_PROGRESS"] },
+      },
+      data: {
+        status: "APPROVED",
+        timerActive: false,
+        timerStartedAt: null,
+      },
+    });
 
-    if (existingUserRevision) {
-      await prisma.taskRevision.update({
-        where: { id: existingUserRevision.id },
-        data: {
-          status: "APPROVED",
-          feedback: "Disetujui (Approved)",
-          authorName: currentUser.name,
-        },
-      });
-    } else {
-      await prisma.taskRevision.create({
-        data: {
-          taskId,
-          round: targetRound,
-          feedback: "Disetujui tanpa revisi (Approved)",
-          authorId: currentUser.id,
-          authorName: currentUser.name,
-          status: "APPROVED",
-          seconds: 0,
-          timerActive: false,
-        },
-      });
+    // 2. Set task status strictly to "Done"
+    // Clear active preview request data, reset phase to INITIAL, stop timer, record completedAt
+    // Strictly preserve currentRevisionRound without any increment
+    await prisma.task.update({
+      where: { id: taskId },
+      data: {
+        status: "Done",
+        currentPhase: "INITIAL",
+        completedAt: now,
+        previewDescription: null,
+        timerActive: false,
+        timerStartedAt: null,
+        totalSeconds: (task.totalSeconds || 0) + elapsed,
+      },
+    });
+
+    // 3. Trigger approval notifications
+    if (task.userId !== currentUser.id) {
+      await createNotification({
+        userId: task.userId,
+        title: "Task Disetujui & Selesai! 🎉",
+        message: `${currentUser.name} telah menyetujui "${task.title}". Status resmi menjadi Done.`,
+        type: "TASK_APPROVED",
+        link: "/dashboard?tab=archive",
+        taskId: task.id,
+        actorName: currentUser.name,
+        taskTitle: task.title,
+        outputType: task.taskOutputType || undefined,
+        priority: task.priority,
+        dueDate: task.dueDate,
+        estimatedHours: task.estimatedHours,
+        revisionRound: task.currentRevisionRound,
+        revisionNote: "Task telah melalui proses peninjauan dan secara resmi disetujui tanpa catatan revisi. Status resmi menjadi Done.",
+        revisionAuthor: currentUser.name,
+      }).catch((e) => console.error("Notification creation failed:", e));
     }
 
-    // Check if other assigned reviewers still need to review
-    const reviewedAuthors = new Set(
-      task.revisions
-        .filter((r) => r.round === targetRound)
-        .map((r) => r.authorId)
-        .filter(Boolean)
-    );
-    reviewedAuthors.add(currentUser.id);
-
-    const hasPendingOtherReviewers =
-      assignedReviewerIds.length > 1 &&
-      assignedReviewerIds.some((id) => !reviewedAuthors.has(id));
-
-    if (hasPendingOtherReviewers) {
-      // Keep In Review so other reviewers can review independently without lockout
-      await prisma.task.update({
-        where: { id: taskId },
-        data: {
-          status: "In Review",
-          currentRevisionRound: targetRound,
-        },
-      });
-    } else {
-      // All reviewers finished!
-      // Check if any reviewer requested revisions (status === 'PENDING')
-      const stillPendingRevisions = await prisma.taskRevision.findMany({
-        where: { taskId, round: targetRound, status: "PENDING" },
-      });
-
-      if (stillPendingRevisions.length > 0) {
-        // Some reviewers requested revisions -> move to Revision
-        await prisma.task.update({
-          where: { id: taskId },
-          data: {
-            status: "Revision",
-            currentPhase: "REVISION",
-            currentRevisionRound: targetRound,
-            timerActive: false,
-            timerStartedAt: null,
-          },
-        });
-      } else {
-        // All reviewers approved -> Done!
-        await prisma.taskRevision.updateMany({
-          where: { taskId },
-          data: { status: "APPROVED" },
-        });
-
-        await prisma.task.update({
-          where: { id: taskId },
-          data: {
-            status: "Done",
-            completedAt: new Date(),
-            timerActive: false,
-            timerStartedAt: null,
-          },
-        });
-
-        if (task.userId !== currentUser.id) {
-          await createNotification({
-            userId: task.userId,
-            title: "Task Disetujui & Selesai! 🎉",
-            message: `${currentUser.name} telah menyetujui "${task.title}". Status resmi menjadi Done.`,
-            type: "TASK_APPROVED",
-            link: "/dashboard?tab=archive",
-            taskId: task.id,
-            actorName: currentUser.name,
-            taskTitle: task.title,
-            outputType: task.taskOutputType || undefined,
-            priority: task.priority,
-            dueDate: task.dueDate,
-            estimatedHours: task.estimatedHours,
-            revisionRound: task.currentRevisionRound,
-            revisionNote: "Task telah melalui proses peninjauan dan secara resmi disetujui tanpa catatan revisi tambahan. Status resmi menjadi Done.",
-            revisionAuthor: currentUser.name,
-          }).catch((e) => console.error("Notification creation failed:", e));
-        }
-      }
+    if (task.createdById && task.createdById !== currentUser.id && task.createdById !== task.userId) {
+      await createNotification({
+        userId: task.createdById,
+        title: "Task Selesai Disetujui 🎉",
+        message: `Task "${task.title}" telah disetujui oleh ${currentUser.name} dan berstatus Done.`,
+        type: "TASK_DONE",
+        link: "/dashboard?tab=delegated",
+        taskId: task.id,
+      }).catch(() => {});
     }
 
     revalidatePath("/dashboard");
     revalidatePath("/management");
+    revalidatePath("/");
     if (task.projectId) {
       revalidatePath(`/projects/${task.projectId}`);
     }
-    return { success: true };
+
+    return {
+      success: true,
+      message: "Task berhasil disetujui & berstatus Selesai (Done).",
+    };
   } catch (err: any) {
     console.error("Error in approveTaskAction:", err);
     return { success: false, error: err.message || "Gagal menyetujui task." };

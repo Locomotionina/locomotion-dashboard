@@ -415,10 +415,10 @@ let memoryCachedReviewers: StaffMemberOption[] = [];
 export function StaffDashboardClient({
   user,
   activeTasks: initialActiveTasks,
-  archivedTasks,
-  delegatedTasks = [],
-  reviewRequests = [],
-  allTasks = [],
+  archivedTasks: initialArchivedTasks = [],
+  delegatedTasks: initialDelegatedTasks = [],
+  reviewRequests: initialReviewRequests = [],
+  allTasks: initialAllTasks = [],
   folders = [],
   staffMembers = [],
   projects,
@@ -428,10 +428,30 @@ export function StaffDashboardClient({
 
   // Local active tasks state for instant optimistic updates
   const [tasks, setTasks] = useState<TaskItem[]>(initialActiveTasks);
+  const [archivedTasks, setArchivedTasks] = useState<TaskItem[]>(initialArchivedTasks || []);
+  const [delegatedTasks, setDelegatedTasks] = useState<DelegatedTaskItem[]>(initialDelegatedTasks || []);
+  const [reviewRequests, setReviewRequests] = useState<ReviewRequestItem[]>(initialReviewRequests || []);
+  const [allTasks, setAllTasks] = useState<AgencyTaskItem[]>(initialAllTasks || []);
 
   useEffect(() => {
     setTasks(initialActiveTasks);
   }, [initialActiveTasks]);
+
+  useEffect(() => {
+    setArchivedTasks(initialArchivedTasks || []);
+  }, [initialArchivedTasks]);
+
+  useEffect(() => {
+    setDelegatedTasks(initialDelegatedTasks || []);
+  }, [initialDelegatedTasks]);
+
+  useEffect(() => {
+    setReviewRequests(initialReviewRequests || []);
+  }, [initialReviewRequests]);
+
+  useEffect(() => {
+    setAllTasks(initialAllTasks || []);
+  }, [initialAllTasks]);
 
   // Reviewer pre-fetch and memory cache
   const [cachedStaffMembers, setCachedStaffMembers] = useState<StaffMemberOption[]>(() => {
@@ -1089,16 +1109,83 @@ export function StaffDashboardClient({
 
   const handleApproveTask = async (taskId: string) => {
     setActionLoadingId(taskId);
+
+    // Save previous states for rollback if request fails
+    const prevTasks = [...tasks];
+    const prevArchivedTasks = [...archivedTasks];
+    const prevReviewRequests = [...reviewRequests];
+    const prevDelegatedTasks = [...delegatedTasks];
+    const prevAllTasks = [...allTasks];
+
+    // Helper to optimistically mark task as DONE in-memory
+    const markAsDone = <T extends { id: string; status: string }>(item: T): T => {
+      if (item.id !== taskId) return item;
+      return {
+        ...item,
+        status: "Done",
+        currentPhase: "INITIAL",
+        previewDescription: null,
+        timerActive: false,
+        timerStartedAt: null,
+        completedAt: new Date(),
+        revisions: ((item as any).revisions || []).map((rev: any) => ({
+          ...rev,
+          status: "APPROVED",
+        })),
+      };
+    };
+
+    // 1. Immediately hide review action box and reset form
+    if (openRevisionFormId === taskId) {
+      setOpenRevisionFormId(null);
+    }
+
+    // 2. Real-time optimistic UI updates across all views:
+    // Update active tasks, review requests, delegated tasks, and all-tasks
+    setTasks((prev) => prev.map(markAsDone));
+    setReviewRequests((prev) => prev.map(markAsDone));
+    setDelegatedTasks((prev) => prev.map(markAsDone));
+    setAllTasks((prev) => prev.map(markAsDone));
+
+    // Also populate archivedTasks so the completed task immediately appears in the Archive tab
+    const sourceTask =
+      tasks.find((t) => t.id === taskId) ||
+      (allTasks.find((t) => t.id === taskId) as any) ||
+      (delegatedTasks.find((t) => t.id === taskId) as any) ||
+      (reviewRequests.find((t) => t.id === taskId) as any);
+
+    if (sourceTask) {
+      const doneTask = markAsDone(sourceTask);
+      setArchivedTasks((prev) => {
+        if (prev.some((t) => t.id === taskId)) {
+          return prev.map((t) => (t.id === taskId ? doneTask : t));
+        }
+        return [doneTask, ...prev];
+      });
+    }
+
     try {
       const res = await approveTaskAction(taskId);
       if (res && !res.success) {
-        alert(res.error || "Gagal menyetujui task.");
+        // Rollback state on error
+        setTasks(prevTasks);
+        setArchivedTasks(prevArchivedTasks);
+        setReviewRequests(prevReviewRequests);
+        setDelegatedTasks(prevDelegatedTasks);
+        setAllTasks(prevAllTasks);
+        showToast(res.error || "Gagal menyetujui task.", "error");
       } else {
+        showToast("Task berhasil disetujui & berstatus Selesai (Done)! 🎉", "success");
         router.refresh();
       }
     } catch (err: any) {
       console.error("Error approving task:", err);
-      alert("Terjadi kesalahan sistem saat menyetujui task: " + (err?.message || err));
+      setTasks(prevTasks);
+      setArchivedTasks(prevArchivedTasks);
+      setReviewRequests(prevReviewRequests);
+      setDelegatedTasks(prevDelegatedTasks);
+      setAllTasks(prevAllTasks);
+      showToast("Terjadi kesalahan sistem saat menyetujui task: " + (err?.message || err), "error");
     } finally {
       setActionLoadingId(null);
     }
