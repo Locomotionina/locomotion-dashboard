@@ -38,7 +38,6 @@ import {
   Sparkles,
 } from "lucide-react";
 import { formatDate, formatRelativeDays, renderTextWithLinks } from "@/lib/utils";
-import { countCategoryUrls } from "@/lib/deliverables";
 import { canDeleteProject } from "@/lib/departments";
 import { deleteProjectAction } from "@/actions/projects";
 import { MiniCalendarRangePicker } from "./MiniCalendarRangePicker";
@@ -62,12 +61,6 @@ interface ProjectItem {
   finalAssetsUrl: string | null;
   activeTasksCount: number;
   doneTasksCount: number;
-  deliverablesCount?: number;
-  tasks?: {
-    id: string;
-    status: string;
-    taskOutputType?: string | null;
-  }[];
   pics: {
     id: string;
     name: string;
@@ -575,13 +568,6 @@ export function ProjectBoardClient({ projects, currentUser }: ProjectBoardClient
                 ? Math.round((project.doneTasksCount / totalTasks) * 100)
                 : 0;
 
-            const deliverablesCount =
-              typeof project.deliverablesCount === "number"
-                ? project.deliverablesCount
-                : (project.tasks?.filter((t) => t.taskOutputType && t.taskOutputType.trim().length > 0).length ||
-                   project._count.tasks ||
-                   0);
-
             return (
               <Card
                 key={project.id}
@@ -682,7 +668,7 @@ export function ProjectBoardClient({ projects, currentUser }: ProjectBoardClient
                     )}
                   </div>
 
-                  {/* Metadata: Timeline Dates & Deliverables Count */}
+                  {/* Metadata: Timeline Dates */}
                   <div className="flex items-center justify-between pt-2 text-xs text-muted-foreground border-t border-border/40">
                     <span className="flex items-center gap-1 text-[11px]">
                       <Calendar className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
@@ -693,9 +679,6 @@ export function ProjectBoardClient({ projects, currentUser }: ProjectBoardClient
                           ? `Due: ${formatDate(project.deadline)}`
                           : "No timeline set"}
                       </span>
-                    </span>
-                    <span className="text-[11px] font-medium bg-secondary/80 px-2.5 py-0.5 rounded-full">
-                      {deliverablesCount} {deliverablesCount === 1 ? "Deliverable" : "Deliverables"}
                     </span>
                   </div>
 
@@ -743,12 +726,6 @@ export function ProjectBoardClient({ projects, currentUser }: ProjectBoardClient
               totalTasks > 0
                 ? Math.round((detailProject.doneTasksCount / totalTasks) * 100)
                 : 0;
-            const deliverablesCount =
-              typeof detailProject.deliverablesCount === "number"
-                ? detailProject.deliverablesCount
-                : (detailProject.tasks?.filter((t) => t.taskOutputType && t.taskOutputType.trim().length > 0).length ||
-                   detailProject._count?.tasks ||
-                   0);
 
             return (
               <>
@@ -802,7 +779,7 @@ export function ProjectBoardClient({ projects, currentUser }: ProjectBoardClient
                           Task Progress
                         </span>
                         <span className="font-bold text-foreground">
-                          {detailProject.doneTasksCount}/{totalTasks} tasks ({progress}%) • {deliverablesCount} {deliverablesCount === 1 ? "Deliverable" : "Deliverables"}
+                          {detailProject.doneTasksCount}/{totalTasks} tasks ({progress}%)
                         </span>
                       </div>
                       <Progress

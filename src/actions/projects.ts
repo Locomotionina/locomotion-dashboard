@@ -47,21 +47,16 @@ export async function getProjects(filterStatus?: string) {
   });
 
   return projects.map((p) => {
-    // Single-pass O(N) calculation for PICs, deliverables, and status tallies
+    // Single-pass O(N) calculation for PICs and status tallies
     const picMap = new Map<string, any>();
     let activeTasksCount = 0;
     let doneTasksCount = 0;
-    let outputTasksCount = 0;
 
     for (const t of p.tasks) {
       if (t.status === "Done") {
         doneTasksCount++;
       } else {
         activeTasksCount++;
-      }
-
-      if (t.taskOutputType && t.taskOutputType.trim().length > 0) {
-        outputTasksCount++;
       }
 
       if (t.user) {
@@ -81,17 +76,11 @@ export async function getProjects(filterStatus?: string) {
       }
     }
 
-    // Deliverables calculation (Option B):
-    // Counts tasks with explicit output type (e.g. Reels, Feed, Carousel), or total project tasks if unspecified
-    const deliverablesCount =
-      outputTasksCount > 0 ? outputTasksCount : p.tasks.length;
-
     return {
       ...p,
       pics: Array.from(picMap.values()),
       activeTasksCount,
       doneTasksCount,
-      deliverablesCount,
     };
   });
 }

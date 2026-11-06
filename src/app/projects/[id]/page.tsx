@@ -101,7 +101,7 @@ export default async function ProjectDetailPage({
 
           <div>
             <span className="text-muted-foreground block text-[11px] uppercase tracking-wider">
-              Deliverable Completion
+              Task Completion
             </span>
             <div className="flex items-center gap-2 mt-1">
               <Progress value={progress} className="h-2 flex-1" />
@@ -110,7 +110,7 @@ export default async function ProjectDetailPage({
               </span>
             </div>
             <span className="text-[10px] text-muted-foreground">
-              {doneTasks.length} of {totalTasks} {totalTasks === 1 ? "deliverable" : "deliverables"} complete
+              {doneTasks.length} of {totalTasks} tasks complete
             </span>
           </div>
         </div>
