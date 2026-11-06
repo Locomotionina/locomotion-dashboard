@@ -114,3 +114,40 @@ export function getTierBadgeLabel(tier: AccountTier): string {
       return "Staff";
   }
 }
+
+/**
+ * Role-Based Access Control (RBAC) for Project Deletion:
+ * Render and allow the "Delete Project" action ONLY for users logged in with:
+ * - Account Executive (AE)
+ * - Project Manager (PM)
+ *
+ * For all other roles/positions, access is strictly denied.
+ */
+export function canDeleteProject(
+  user?: { position?: string | null; role?: string | null; department?: string | null } | null
+): boolean {
+  if (!user) return false;
+
+  const pos = (user.position || "").trim().toLowerCase();
+  const role = (user.role || "").trim().toLowerCase();
+
+  // 1. Account Executive (AE)
+  const isAE =
+    pos === "account executive" ||
+    pos === "ae" ||
+    pos.includes("account executive") ||
+    role === "account executive" ||
+    role === "ae";
+
+  // 2. Project Manager (PM)
+  const isPM =
+    pos === "project manager" ||
+    pos === "associate project manager" ||
+    pos === "pm" ||
+    pos.includes("project manager") ||
+    role === "project manager" ||
+    role === "pm";
+
+  return isAE || isPM;
+}
+

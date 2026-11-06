@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { updateProjectMetadataAction } from "@/actions/projects";
+import { updateProjectMetadataAction, deleteProjectAction } from "@/actions/projects";
+import { canDeleteProject } from "@/lib/departments";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -25,6 +26,10 @@ import {
   Target,
   Layers,
   Calendar,
+  Trash2,
+  AlertTriangle,
+  CheckCircle2,
+  X,
 } from "lucide-react";
 import { AddMyTaskDialog } from "./AddMyTaskDialog";
 
@@ -45,6 +50,13 @@ interface ProjectData {
 
 interface ProjectHeroHeaderProps {
   project: ProjectData;
+  currentUser?: {
+    id?: string;
+    name?: string;
+    role?: string;
+    position?: string;
+    department?: string;
+  } | null;
   currentUserId?: string;
   currentUserName?: string;
   canEdit: boolean; // MANAGEMENT or ADMIN
@@ -52,6 +64,7 @@ interface ProjectHeroHeaderProps {
 
 export function ProjectHeroHeader({
   project,
+  currentUser,
   currentUserId,
   currentUserName,
   canEdit,
@@ -92,6 +105,45 @@ export function ProjectHeroHeader({
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // RBAC for Project Deletion: Only Account Executive (AE) and Project Manager (PM)
+  const canDelete = canDeleteProject(currentUser);
+  const [isConfirmDeleteOpen, setIsConfirmDeleteOpen] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  // Toast notification state
+  const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
+  const toastTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const showToast = (message: string, type: "success" | "error" = "success") => {
+    if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
+    setToast({ message, type });
+    toastTimeoutRef.current = setTimeout(() => {
+      setToast(null);
+    }, 4500);
+  };
+
+  const handleConfirmDelete = async () => {
+    setIsDeleting(true);
+    try {
+      const res = await deleteProjectAction(project.id);
+      if (res.success) {
+        setIsConfirmDeleteOpen(false);
+        showToast(
+          res.message || "Project berhasil dihapus dan seluruh task terkait telah diubah statusnya menjadi DONE.",
+          "success"
+        );
+        router.push("/projects");
+        router.refresh();
+      } else {
+        showToast(res.error || "Gagal menghapus project.", "error");
+      }
+    } catch (err: any) {
+      showToast(err.message || "Terjadi kesalahan saat menghapus project.", "error");
+    } finally {
+      setIsDeleting(false);
+    }
+  };
 
   const handleOpenEdit = () => {
     if (!canEdit) return;
@@ -204,6 +256,20 @@ export function ProjectHeroHeader({
 
         {/* Action Controls */}
         <div className="shrink-0 flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+          {/* Delete Project action strictly rendered ONLY for Account Executive (AE) and Project Manager (PM) */}
+          {canDelete && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setIsConfirmDeleteOpen(true)}
+              className="gap-1.5 text-xs h-9 border-rose-500/40 text-rose-600 dark:text-rose-400 hover:bg-rose-500/10 hover:text-rose-600 dark:hover:text-rose-300 hover:border-rose-500/60 font-semibold transition-all"
+            >
+              <Trash2 className="h-4 w-4 text-rose-500" />
+              <span>Delete Project</span>
+            </Button>
+          )}
+
           {/* Edit Project Details button strictly for Management & Admin */}
           {canEdit && (
             <Button
@@ -432,23 +498,125 @@ export function ProjectHeroHeader({
                 </div>
               </div>
 
-              <DialogFooter className="gap-2 sm:gap-0 pt-2 border-t border-border/50">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => setIsEditOpen(false)}
-                  disabled={saving}
-                >
-                  Cancel
-                </Button>
-                <Button type="submit" disabled={saving} className="gap-2">
-                  {saving && <Loader2 className="h-4 w-4 animate-spin" />}
-                  <span>Save Project Changes</span>
-                </Button>
+              <DialogFooter className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 pt-2 border-t border-border/50">
+                {canDelete ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      setIsEditOpen(false);
+                      setIsConfirmDeleteOpen(true);
+                    }}
+                    className="border-rose-500/40 text-rose-600 dark:text-rose-400 hover:bg-rose-500/10 hover:border-rose-500/60 font-semibold text-xs h-9 gap-1.5 self-start sm:self-auto"
+                  >
+                    <Trash2 className="h-4 w-4 text-rose-500" />
+                    <span>Delete Project</span>
+                  </Button>
+                ) : (
+                  <div />
+                )}
+
+                <div className="flex items-center gap-2 self-end sm:self-auto">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setIsEditOpen(false)}
+                    disabled={saving}
+                  >
+                    Cancel
+                  </Button>
+                  <Button type="submit" disabled={saving} className="gap-2">
+                    {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+                    <span>Save Project Changes</span>
+                  </Button>
+                </div>
               </DialogFooter>
             </form>
           </DialogContent>
         </Dialog>
+      )}
+
+      {/* Confirmation Modal Pop-up */}
+      <Dialog
+        open={isConfirmDeleteOpen}
+        onOpenChange={(open) => !open && !isDeleting && setIsConfirmDeleteOpen(false)}
+      >
+        <DialogContent className="max-w-md p-6">
+          <DialogHeader className="space-y-3 text-left">
+            <div className="flex items-center gap-3">
+              <div className="h-10 w-10 rounded-full bg-rose-500/15 border border-rose-500/30 flex items-center justify-center shrink-0">
+                <AlertTriangle className="h-5 w-5 text-rose-600 dark:text-rose-400" />
+              </div>
+              <DialogTitle className="text-lg font-bold text-foreground">
+                Hapus Project?
+              </DialogTitle>
+            </div>
+            <DialogDescription className="text-xs sm:text-sm text-muted-foreground leading-relaxed">
+              Apakah Anda yakin ingin menghapus project ini? Seluruh task yang terdaftar di dalam project ini akan otomatis diubah statusnya menjadi DONE di setiap akun anggota tim.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="p-3 rounded-xl bg-secondary/50 border border-border/60 text-xs space-y-1 my-2">
+            <div className="font-semibold text-foreground flex items-center gap-2">
+              <span className="font-mono text-indigo-400 text-[11px] font-bold">
+                {code}
+              </span>
+              <span>•</span>
+              <span className="truncate">{name}</span>
+            </div>
+            <div className="text-muted-foreground text-[11px]">
+              Client: {clientName}
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2 sm:gap-2 pt-4 border-t border-border/50">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setIsConfirmDeleteOpen(false)}
+              disabled={isDeleting}
+              className="text-xs h-9"
+            >
+              Batal
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={handleConfirmDelete}
+              disabled={isDeleting}
+              className="text-xs h-9 bg-rose-600 hover:bg-rose-700 text-white font-semibold gap-2"
+            >
+              {isDeleting && <Loader2 className="h-4 w-4 animate-spin" />}
+              <span>Ya, Hapus Project</span>
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Floating Success / Error Toast Notification */}
+      {toast && (
+        <div
+          role="status"
+          className={`fixed bottom-6 right-6 z-50 flex items-center gap-3 px-4 py-3 rounded-2xl shadow-2xl text-xs font-semibold backdrop-blur-md border animate-fade-in ${
+            toast.type === "error"
+              ? "bg-rose-600/95 text-white border-rose-500 shadow-rose-900/30"
+              : "bg-emerald-600/95 text-white border-emerald-500 shadow-emerald-900/30"
+          }`}
+        >
+          {toast.type === "error" ? (
+            <AlertTriangle className="h-4 w-4 shrink-0 text-white" />
+          ) : (
+            <CheckCircle2 className="h-4 w-4 shrink-0 text-white" />
+          )}
+          <span>{toast.message}</span>
+          <button
+            type="button"
+            onClick={() => setToast(null)}
+            className="ml-2 text-white/80 hover:text-white p-0.5 rounded-full hover:bg-white/10"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
       )}
     </>
   );

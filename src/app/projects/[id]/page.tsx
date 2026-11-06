@@ -55,6 +55,7 @@ export default async function ProjectDetailPage({
       <div className="rounded-2xl border border-border/80 bg-card p-6 sm:p-8 space-y-6 shadow-xl">
         <ProjectHeroHeader
           project={project as any}
+          currentUser={currentUser}
           currentUserId={currentUser?.id}
           currentUserName={currentUser?.name}
           canEdit={currentUser?.role === "MANAGEMENT" || currentUser?.role === "ADMIN"}

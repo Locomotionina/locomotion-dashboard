@@ -39,7 +39,20 @@ export default async function ProjectsPage() {
       </div>
 
       {/* Board Client */}
-      <ProjectBoardClient projects={projects as any} />
+      <ProjectBoardClient
+        projects={projects as any}
+        currentUser={
+          user
+            ? {
+                id: user.id,
+                name: user.name,
+                role: user.role,
+                position: user.position,
+                department: user.department,
+              }
+            : null
+        }
+      />
     </div>
   );
 }

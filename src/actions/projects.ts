@@ -5,6 +5,9 @@ import { getCurrentUser } from "@/lib/auth";
 import { revalidatePath } from "next/cache";
 import { isValidDeliverableUrl } from "@/lib/security";
 import { canManageDeliverables } from "@/lib/deliverables";
+import { canDeleteProject } from "@/lib/departments";
+
+export { canDeleteProject };
 
 export async function getProjects(filterStatus?: string) {
   const whereClause: any = {};
@@ -551,3 +554,105 @@ export async function deleteDeliverableAction(deliverableId: string, projectId: 
   revalidatePath(`/projects/${projectId}`);
   return { success: true };
 }
+
+/**
+ * Deletes a project record after bulk-updating all associated tasks to "Done".
+ * Strictly authorized ONLY for:
+ * - Account Executive (AE)
+ * - Project Manager (PM)
+ */
+export async function deleteProjectAction(projectId: string) {
+  try {
+    const user = await getCurrentUser();
+    if (!user || !canDeleteProject(user)) {
+      return {
+        success: false,
+        error:
+          "Akses ditolak: Hanya Account Executive (AE) dan Project Manager (PM) yang berwenang menghapus project.",
+      };
+    }
+
+    if (!projectId || typeof projectId !== "string") {
+      return { success: false, error: "Project ID tidak valid." };
+    }
+
+    const project = await prisma.project.findUnique({
+      where: { id: projectId },
+      include: {
+        tasks: {
+          select: { id: true, userId: true, title: true, status: true },
+        },
+      },
+    });
+
+    if (!project) {
+      return { success: false, error: "Project tidak ditemukan atau sudah dihapus." };
+    }
+
+    const now = new Date();
+
+    // 1. Bulk-update all tasks associated with this project to "Done" across all assigned users' accounts
+    await prisma.task.updateMany({
+      where: { projectId: projectId },
+      data: {
+        status: "Done",
+        completedAt: now,
+        timerActive: false,
+        timerStartedAt: null,
+      },
+    });
+
+    // Also update any pending task revisions associated with these tasks to "APPROVED"
+    await prisma.taskRevision.updateMany({
+      where: {
+        task: { projectId: projectId },
+        status: "PENDING",
+      },
+      data: {
+        status: "APPROVED",
+      },
+    });
+
+    // Notify assigned team members if any active tasks were auto-completed
+    for (const task of project.tasks) {
+      if (task.userId && task.status !== "Done") {
+        await prisma.notification
+          .create({
+            data: {
+              userId: task.userId,
+              title: "Task Selesai Otomatis (Project Dihapus)",
+              message: `Task "${task.title}" otomatis diubah menjadi DONE karena project "${project.name}" telah dihapus oleh ${user.name}.`,
+              type: "TASK_DONE",
+            },
+          })
+          .catch(() => {});
+      }
+    }
+
+    // 2. Delete project deliverables and the project record itself
+    await prisma.projectDeliverable.deleteMany({
+      where: { projectId: projectId },
+    });
+
+    await prisma.project.delete({
+      where: { id: projectId },
+    });
+
+    revalidatePath("/projects");
+    revalidatePath("/dashboard");
+    revalidatePath("/management");
+    revalidatePath("/");
+
+    return {
+      success: true,
+      message: `Project "${project.name}" berhasil dihapus dan seluruh task terkait telah diubah statusnya menjadi DONE.`,
+    };
+  } catch (error: any) {
+    console.error("Failed to delete project:", error);
+    return {
+      success: false,
+      error: error.message || "Terjadi kesalahan internal saat menghapus project.",
+    };
+  }
+}
+

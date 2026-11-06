@@ -1,13 +1,22 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Progress } from "@/components/ui/progress";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   FolderKanban,
   Search,
@@ -18,9 +27,20 @@ import {
   RotateCcw,
   SlidersHorizontal,
   X,
+  Trash2,
+  AlertTriangle,
+  CheckCircle2,
+  Loader2,
+  ExternalLink,
+  FileText,
+  Target,
+  Layers,
+  Sparkles,
 } from "lucide-react";
 import { formatDate, formatRelativeDays } from "@/lib/utils";
 import { countCategoryUrls } from "@/lib/deliverables";
+import { canDeleteProject } from "@/lib/departments";
+import { deleteProjectAction } from "@/actions/projects";
 import { MiniCalendarRangePicker } from "./MiniCalendarRangePicker";
 
 interface ProjectItem {
@@ -31,6 +51,9 @@ interface ProjectItem {
   status: string;
   priority: string;
   category: string;
+  brief?: string;
+  goals?: string;
+  description?: string;
   startDate: Date | null;
   deadline: Date | null;
   previewUrl: string | null;
@@ -52,11 +75,91 @@ interface ProjectItem {
     tasks: number;
     deliverables: number;
   };
+  deliverables?: {
+    id: string;
+    title: string;
+    url: string;
+    type: string;
+  }[];
+}
+
+interface ProjectBoardClientProps {
+  projects: ProjectItem[];
+  currentUser?: {
+    id: string;
+    name: string;
+    role: string;
+    position: string;
+    department: string;
+  } | null;
 }
 
 type TimelineFilterMode = "NONE" | "MODE_A" | "MODE_B";
 
-export function ProjectBoardClient({ projects }: { projects: ProjectItem[] }) {
+export function ProjectBoardClient({ projects, currentUser }: ProjectBoardClientProps) {
+  const router = useRouter();
+  const [projectsList, setProjectsList] = useState<ProjectItem[]>(projects);
+
+  // Sync state if initial prop changes
+  useEffect(() => {
+    setProjectsList(projects);
+  }, [projects]);
+
+  // Selected project for Project Detail modal
+  const [detailProject, setDetailProject] = useState<ProjectItem | null>(null);
+
+  // Selected project for Delete Confirmation modal
+  const [confirmDeleteProject, setConfirmDeleteProject] = useState<ProjectItem | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  // Instant floating Toast notification state
+  const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
+  const toastTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const showToast = (message: string, type: "success" | "error" = "success") => {
+    if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
+    setToast({ message, type });
+    toastTimeoutRef.current = setTimeout(() => {
+      setToast(null);
+    }, 4500);
+  };
+
+  // RBAC check: Only Account Executive (AE) and Project Manager (PM) can delete
+  const canDelete = canDeleteProject(currentUser);
+
+  const handleConfirmDelete = async () => {
+    if (!confirmDeleteProject) return;
+    setIsDeleting(true);
+
+    try {
+      const res = await deleteProjectAction(confirmDeleteProject.id);
+      if (res.success) {
+        const deletedId = confirmDeleteProject.id;
+        // Close confirmation modal
+        setConfirmDeleteProject(null);
+        // Close detail modal if the deleted project was open
+        if (detailProject?.id === deletedId) {
+          setDetailProject(null);
+        }
+        // Real-time UI refresh / optimistic state update
+        setProjectsList((prev) => prev.filter((p) => p.id !== deletedId));
+        // Show success toast notification
+        showToast(
+          res.message ||
+            "Project berhasil dihapus dan seluruh task terkait telah diubah statusnya menjadi DONE.",
+          "success"
+        );
+        router.refresh();
+      } else {
+        showToast(res.error || "Gagal menghapus project.", "error");
+      }
+    } catch (err: any) {
+      showToast(err.message || "Terjadi kesalahan saat menghapus project.", "error");
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   const [search, setSearch] = useState("");
   const [selectedStatus, setSelectedStatus] = useState("ALL");
 
@@ -70,7 +173,7 @@ export function ProjectBoardClient({ projects }: { projects: ProjectItem[] }) {
 
   const statusOptions = ["ALL", "ACTIVE", "ON_HOLD", "DONE"];
 
-  const filtered = projects.filter((p) => {
+  const filtered = projectsList.filter((p) => {
     // 1. Search Query
     const matchesSearch =
       p.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -149,6 +252,19 @@ export function ProjectBoardClient({ projects }: { projects: ProjectItem[] }) {
         return <Badge variant="warning">In Review</Badge>;
       default:
         return <Badge>{status}</Badge>;
+    }
+  };
+
+  const getPriorityBadge = (pr: string) => {
+    switch (pr) {
+      case "URGENT":
+        return <Badge variant="destructive">URGENT</Badge>;
+      case "HIGH":
+        return <Badge variant="warning">HIGH PRIORITY</Badge>;
+      case "MEDIUM":
+        return <Badge variant="default">MEDIUM</Badge>;
+      default:
+        return <Badge variant="secondary">LOW</Badge>;
     }
   };
 
@@ -482,7 +598,10 @@ export function ProjectBoardClient({ projects }: { projects: ProjectItem[] }) {
                     <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
                       {project.clientName}
                     </span>
-                    <h3 className="text-lg font-bold text-foreground leading-snug group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors line-clamp-1">
+                    <h3
+                      onClick={() => setDetailProject(project)}
+                      className="text-lg font-bold text-foreground leading-snug group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors line-clamp-1 cursor-pointer"
+                    >
                       {project.name}
                     </h3>
                     <p className="text-xs text-muted-foreground line-clamp-1 mt-0.5">
@@ -574,21 +693,331 @@ export function ProjectBoardClient({ projects }: { projects: ProjectItem[] }) {
                     </span>
                   </div>
 
-                  {/* Action Link to Detail View */}
-                  <Button
-                    asChild
-                    variant="outline"
-                    className="w-full justify-between rounded-xl border-border/70 group-hover:bg-blue-600 dark:group-hover:bg-blue-500 group-hover:text-white group-hover:border-transparent transition-all duration-200"
-                  >
-                    <Link href={`/projects/${project.id}`}>
-                      <span>View Project & Deliverables</span>
+                  {/* Action Link to Detail View / Modal */}
+                  <div className="flex items-center gap-2 pt-1">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => setDetailProject(project)}
+                      className="flex-1 justify-between rounded-xl border-border/70 group-hover:bg-blue-600 dark:group-hover:bg-blue-500 group-hover:text-white group-hover:border-transparent transition-all duration-200 text-xs font-semibold h-9"
+                    >
+                      <span>Project Details</span>
                       <ArrowRight className="h-4 w-4" />
-                    </Link>
-                  </Button>
+                    </Button>
+                    <Button
+                      asChild
+                      variant="ghost"
+                      size="sm"
+                      className="h-9 px-2.5 rounded-xl border border-border/60 hover:bg-secondary text-muted-foreground hover:text-foreground shrink-0 text-xs gap-1"
+                      title="Open Full Workspace & Deliverables"
+                    >
+                      <Link href={`/projects/${project.id}`}>
+                        <span className="hidden sm:inline">Workspace</span>
+                        <ExternalLink className="h-3.5 w-3.5" />
+                      </Link>
+                    </Button>
+                  </div>
                 </CardContent>
               </Card>
             );
           })}
+        </div>
+      )}
+
+      {/* Project Detail Modal / Info Panel */}
+      <Dialog
+        open={!!detailProject}
+        onOpenChange={(open) => !open && setDetailProject(null)}
+      >
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto space-y-5">
+          {detailProject && (() => {
+            const totalTasks =
+              detailProject.activeTasksCount + detailProject.doneTasksCount;
+            const progress =
+              totalTasks > 0
+                ? Math.round((detailProject.doneTasksCount / totalTasks) * 100)
+                : 0;
+            const deliverablesCount =
+              countCategoryUrls(detailProject.previewUrl) +
+              countCategoryUrls(detailProject.pitchDeckUrl) +
+              countCategoryUrls(detailProject.creativeDeckUrl) +
+              countCategoryUrls(detailProject.finalAssetsUrl) +
+              (detailProject._count?.deliverables || 0);
+
+            return (
+              <>
+                <DialogHeader className="space-y-3 pb-3 border-b border-border/50 text-left">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-xs font-mono font-bold uppercase tracking-wider text-blue-700 dark:text-blue-300 bg-blue-500/10 px-2.5 py-0.5 rounded-full border border-blue-500/20">
+                      {detailProject.code}
+                    </span>
+                    {renderCountdownBadge(detailProject.deadline)}
+                    {getStatusBadge(detailProject.status)}
+                    {getPriorityBadge(detailProject.priority)}
+                    <Badge variant="outline">{detailProject.category}</Badge>
+                  </div>
+
+                  <div>
+                    <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground block">
+                      Client: {detailProject.clientName}
+                    </span>
+                    <DialogTitle className="text-xl sm:text-2xl font-extrabold tracking-tight text-foreground mt-0.5">
+                      {detailProject.name}
+                    </DialogTitle>
+                  </div>
+                </DialogHeader>
+
+                {/* Info Panel Content */}
+                <div className="space-y-5 text-xs">
+                  {/* Timeline Dates & Progress Grid */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-4 rounded-xl bg-secondary/40 border border-border/50">
+                    <div className="space-y-1">
+                      <span className="text-[11px] uppercase tracking-wider text-muted-foreground font-semibold flex items-center gap-1.5">
+                        <Calendar className="h-3.5 w-3.5 text-blue-500" />
+                        <span>Project Timeline</span>
+                      </span>
+                      <p className="font-semibold text-foreground text-xs">
+                        {detailProject.startDate && detailProject.deadline
+                          ? `${formatDate(detailProject.startDate)} – ${formatDate(detailProject.deadline)}`
+                          : detailProject.deadline
+                          ? `Due: ${formatDate(detailProject.deadline)}`
+                          : "No timeline set"}
+                      </p>
+                      {detailProject.deadline && (
+                        <span className="text-[10px] text-muted-foreground block">
+                          ({formatRelativeDays(detailProject.deadline)})
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between text-[11px]">
+                        <span className="text-muted-foreground font-semibold">
+                          Task Progress
+                        </span>
+                        <span className="font-bold text-foreground">
+                          {detailProject.doneTasksCount}/{totalTasks} tasks ({progress}%)
+                        </span>
+                      </div>
+                      <Progress
+                        value={progress}
+                        indicatorClassName={
+                          progress === 100
+                            ? "bg-emerald-500"
+                            : progress > 50
+                            ? "bg-blue-500"
+                            : "bg-indigo-500"
+                        }
+                      />
+                    </div>
+                  </div>
+
+                  {/* Team PIC Roster */}
+                  <div className="space-y-2">
+                    <span className="text-[11px] uppercase tracking-wider text-muted-foreground font-semibold flex items-center gap-1.5">
+                      <Users className="h-3.5 w-3.5 text-blue-500" />
+                      <span>Assigned Staff (PICs) • {detailProject.pics.length} members</span>
+                    </span>
+                    {detailProject.pics.length > 0 ? (
+                      <div className="flex flex-wrap gap-2 pt-1">
+                        {detailProject.pics.map((pic) => (
+                          <div
+                            key={pic.id}
+                            className="flex items-center gap-2 p-2 rounded-xl bg-secondary/60 border border-border/40 text-xs"
+                          >
+                            <Avatar className="h-6 w-6">
+                              <AvatarImage src={pic.avatarUrl || ""} />
+                              <AvatarFallback className="text-[10px] bg-blue-500/10 text-blue-600 font-bold">
+                                {pic.name[0]}
+                              </AvatarFallback>
+                            </Avatar>
+                            <div>
+                              <p className="font-semibold text-foreground leading-tight">
+                                {pic.name}
+                              </p>
+                              <p className="text-[10px] text-muted-foreground">
+                                {pic.position} • {pic.activeTaskCount} active tasks
+                              </p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-muted-foreground italic text-xs">
+                        No team tasks linked yet.
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Descriptions Section */}
+                  <div className="space-y-3 pt-2 border-t border-border/50">
+                    {detailProject.brief && (
+                      <div className="space-y-1">
+                        <span className="font-semibold text-foreground flex items-center gap-1.5 text-xs">
+                          <FileText className="h-3.5 w-3.5 text-indigo-400" />
+                          <span>Client Brief</span>
+                        </span>
+                        <p className="text-muted-foreground whitespace-pre-wrap leading-relaxed bg-secondary/30 p-3 rounded-xl border border-border/40">
+                          {detailProject.brief}
+                        </p>
+                      </div>
+                    )}
+
+                    {detailProject.goals && (
+                      <div className="space-y-1">
+                        <span className="font-semibold text-foreground flex items-center gap-1.5 text-xs">
+                          <Target className="h-3.5 w-3.5 text-purple-400" />
+                          <span>Strategic Goals & KPIs</span>
+                        </span>
+                        <p className="text-muted-foreground whitespace-pre-wrap leading-relaxed bg-secondary/30 p-3 rounded-xl border border-border/40">
+                          {detailProject.goals}
+                        </p>
+                      </div>
+                    )}
+
+                    {detailProject.description && (
+                      <div className="space-y-1">
+                        <span className="font-semibold text-foreground flex items-center gap-1.5 text-xs">
+                          <Layers className="h-3.5 w-3.5 text-cyan-400" />
+                          <span>Agency Execution Scope</span>
+                        </span>
+                        <p className="text-muted-foreground whitespace-pre-wrap leading-relaxed bg-secondary/30 p-3 rounded-xl border border-border/40">
+                          {detailProject.description}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Detail Modal Footer / Actions */}
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-4 border-t border-border/50">
+                  {/* Left: Role-based Delete Project Action */}
+                  {canDelete ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setConfirmDeleteProject(detailProject)}
+                      className="border-rose-500/40 text-rose-600 dark:text-rose-400 hover:bg-rose-500/10 hover:border-rose-500/60 font-semibold text-xs h-9 gap-1.5 transition-all self-start sm:self-auto"
+                    >
+                      <Trash2 className="h-4 w-4 text-rose-500" />
+                      <span>Delete Project</span>
+                    </Button>
+                  ) : (
+                    <div />
+                  )}
+
+                  {/* Right: Close & Open Workspace Links */}
+                  <div className="flex items-center gap-2 self-end sm:self-auto">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setDetailProject(null)}
+                      className="text-xs h-9"
+                    >
+                      Tutup
+                    </Button>
+                    <Button
+                      asChild
+                      size="sm"
+                      className="text-xs h-9 bg-blue-600 hover:bg-blue-700 text-white gap-1.5"
+                    >
+                      <Link href={`/projects/${detailProject.id}`}>
+                        <span>Open Workspace</span>
+                        <ExternalLink className="h-3.5 w-3.5" />
+                      </Link>
+                    </Button>
+                  </div>
+                </div>
+              </>
+            );
+          })()}
+        </DialogContent>
+      </Dialog>
+
+      {/* Confirmation Modal Pop-up */}
+      <Dialog
+        open={!!confirmDeleteProject}
+        onOpenChange={(open) => !open && !isDeleting && setConfirmDeleteProject(null)}
+      >
+        <DialogContent className="max-w-md p-6">
+          <DialogHeader className="space-y-3 text-left">
+            <div className="flex items-center gap-3">
+              <div className="h-10 w-10 rounded-full bg-rose-500/15 border border-rose-500/30 flex items-center justify-center shrink-0">
+                <AlertTriangle className="h-5 w-5 text-rose-600 dark:text-rose-400" />
+              </div>
+              <DialogTitle className="text-lg font-bold text-foreground">
+                Hapus Project?
+              </DialogTitle>
+            </div>
+            <DialogDescription className="text-xs sm:text-sm text-muted-foreground leading-relaxed">
+              Apakah Anda yakin ingin menghapus project ini? Seluruh task yang terdaftar di dalam project ini akan otomatis diubah statusnya menjadi DONE di setiap akun anggota tim.
+            </DialogDescription>
+          </DialogHeader>
+
+          {confirmDeleteProject && (
+            <div className="p-3 rounded-xl bg-secondary/50 border border-border/60 text-xs space-y-1 my-2">
+              <div className="font-semibold text-foreground flex items-center gap-2">
+                <span className="font-mono text-indigo-400 text-[11px] font-bold">
+                  {confirmDeleteProject.code}
+                </span>
+                <span>•</span>
+                <span className="truncate">{confirmDeleteProject.name}</span>
+              </div>
+              <div className="text-muted-foreground text-[11px]">
+                Client: {confirmDeleteProject.clientName} | {confirmDeleteProject.activeTasksCount + confirmDeleteProject.doneTasksCount} Task terdaftar
+              </div>
+            </div>
+          )}
+
+          <DialogFooter className="gap-2 sm:gap-2 pt-4 border-t border-border/50">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setConfirmDeleteProject(null)}
+              disabled={isDeleting}
+              className="text-xs h-9"
+            >
+              Batal
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={handleConfirmDelete}
+              disabled={isDeleting}
+              className="text-xs h-9 bg-rose-600 hover:bg-rose-700 text-white font-semibold gap-2"
+            >
+              {isDeleting && <Loader2 className="h-4 w-4 animate-spin" />}
+              <span>Ya, Hapus Project</span>
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Floating Success / Error Toast Notification */}
+      {toast && (
+        <div
+          role="status"
+          className={`fixed bottom-6 right-6 z-50 flex items-center gap-3 px-4 py-3 rounded-2xl shadow-2xl text-xs font-semibold backdrop-blur-md border animate-fade-in ${
+            toast.type === "error"
+              ? "bg-rose-600/95 text-white border-rose-500 shadow-rose-900/30"
+              : "bg-emerald-600/95 text-white border-emerald-500 shadow-emerald-900/30"
+          }`}
+        >
+          {toast.type === "error" ? (
+            <AlertTriangle className="h-4 w-4 shrink-0 text-white" />
+          ) : (
+            <CheckCircle2 className="h-4 w-4 shrink-0 text-white" />
+          )}
+          <span>{toast.message}</span>
+          <button
+            type="button"
+            onClick={() => setToast(null)}
+            className="ml-2 text-white/80 hover:text-white p-0.5 rounded-full hover:bg-white/10"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
         </div>
       )}
     </div>
