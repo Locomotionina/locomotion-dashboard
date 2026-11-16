@@ -28,6 +28,7 @@ import {
   Upload,
   Image as ImageIcon,
 } from "lucide-react";
+import { PushNotificationProfileCard } from "@/components/PushNotificationManager";
 
 interface PendingProfileRequest {
   id: string;
@@ -598,6 +599,9 @@ export function ProfileForm({
           </div>
         </form>
       </div>
+
+      {/* Push Notification & PWA Manager */}
+      <PushNotificationProfileCard />
     </div>
   );
 }

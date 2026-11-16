@@ -19,6 +19,7 @@ import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { NotificationBell } from "@/components/NotificationBell";
 import { GlobalSearch } from "@/components/GlobalSearch";
+import { PushNotificationButton, PushNotificationMenuItem } from "@/components/PushNotificationManager";
 import {
   FolderKanban,
   CheckSquare,
@@ -138,10 +139,11 @@ export function Navbar({ user }: NavbarProps) {
           </nav>
         </div>
 
-        {/* Right side: Global Search + Theme Toggle + Notifications + User Profile */}
-        <div className="flex items-center gap-2 sm:gap-2.5">
+        {/* Right side: Global Search + Theme Toggle + Push Notification + Notifications + User Profile */}
+        <div className="flex items-center gap-1.5 sm:gap-2.5">
           <GlobalSearch />
           <ThemeToggle />
+          <PushNotificationButton />
           <NotificationBell />
 
           <DropdownMenu>
@@ -190,6 +192,7 @@ export function Navbar({ user }: NavbarProps) {
                   <span>My Profile</span>
                 </Link>
               </DropdownMenuItem>
+              <PushNotificationMenuItem />
               <DropdownMenuItem
                 onClick={() => window.dispatchEvent(new CustomEvent("open-onboarding"))}
                 className="flex items-center gap-2 cursor-pointer text-blue-600 dark:text-blue-400"

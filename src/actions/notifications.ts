@@ -3,6 +3,7 @@
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
 import { sendTaskNotificationEmail, TaskEmailEventType } from "@/lib/email";
+import { sendPushToUser, formatPushPayload } from "@/lib/push";
 import { revalidatePath } from "next/cache";
 
 export type NotificationType =
@@ -102,6 +103,52 @@ export async function createNotification(params: CreateNotificationParams) {
         // Strict constraint: email failure must NEVER block notification or DB transaction
         console.error("[Resend] Safe exception caught during email dispatch:", mailException);
       }
+    }
+
+    // 2. Dispatch native Web Push notifications to user's registered devices (non-blocking)
+    try {
+      let taskTitle = params.taskTitle;
+      let actorName = params.actorName;
+      let revisionRound = params.revisionRound;
+
+      if (params.taskId && (!taskTitle || !actorName)) {
+        try {
+          const t = await prisma.task.findUnique({
+            where: { id: params.taskId },
+            select: {
+              title: true,
+              createdBy: { select: { name: true } },
+              currentRevisionRound: true,
+            },
+          });
+          if (t) {
+            taskTitle = taskTitle || t.title;
+            actorName = actorName || t.createdBy?.name || "Tim Locomotion";
+            if (!revisionRound && t.currentRevisionRound) {
+              revisionRound = t.currentRevisionRound;
+            }
+          }
+        } catch {
+          // safe fallback
+        }
+      }
+
+      const pushPayload = formatPushPayload({
+        type: params.type,
+        title: params.title,
+        message: params.message,
+        taskId: params.taskId,
+        link: params.link,
+        taskTitle: taskTitle,
+        actorName: actorName,
+        revisionRound: revisionRound,
+      });
+
+      sendPushToUser(params.userId, pushPayload).catch((pushErr) => {
+        console.error("[WebPush] Gagal mengirim push notification:", pushErr);
+      });
+    } catch (pushException) {
+      console.error("[WebPush] Safe exception caught during push dispatch:", pushException);
     }
 
     return { success: true, notification };

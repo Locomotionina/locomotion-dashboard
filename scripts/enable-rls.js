@@ -13,6 +13,7 @@ async function main() {
     "Notification",
     "ProfileUpdateRequest",
     "PasswordResetRequest",
+    "push_subscriptions",
   ];
 
   for (const table of tables) {
