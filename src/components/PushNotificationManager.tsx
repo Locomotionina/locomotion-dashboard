@@ -152,11 +152,26 @@ export function usePushNotifications() {
       const registration = await navigator.serviceWorker.ready;
       let subscription = await registration.pushManager.getSubscription();
 
-      const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+      let vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+
+      // Fallback 1: Fetch from backend API dynamically if not present at build-time
       if (!vapidPublicKey) {
-        showToast("VAPID Public Key belum dikonfigurasi di sistem.", "error");
-        setLoading(false);
-        return;
+        try {
+          const res = await fetch("/api/push/subscribe");
+          if (res.ok) {
+            const data = await res.json();
+            if (data.publicKey) {
+              vapidPublicKey = data.publicKey;
+            }
+          }
+        } catch {
+          // ignore network failure
+        }
+      }
+
+      // Fallback 2: Default to the generated project VAPID key
+      if (!vapidPublicKey) {
+        vapidPublicKey = "BGeFi3XoBjv7MbKeJ9GED-oRxcJkEKfqggTokUIT9vWSW2bcWQ1EXOG42NbGkjbQM5HjF21yi9ro3XQYte_xXeg";
       }
 
       if (!subscription) {

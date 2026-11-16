@@ -1,8 +1,11 @@
 import { setVapidDetails, sendNotification } from "web-push";
 import { prisma } from "@/lib/prisma";
 
-const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
-const vapidPrivateKey = process.env.VAPID_PRIVATE_KEY;
+const vapidPublicKey =
+  process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ||
+  "BGeFi3XoBjv7MbKeJ9GED-oRxcJkEKfqggTokUIT9vWSW2bcWQ1EXOG42NbGkjbQM5HjF21yi9ro3XQYte_xXeg";
+const vapidPrivateKey =
+  process.env.VAPID_PRIVATE_KEY || "6Mk8NHQP2M6TW8BWEUcbLCrL8kJ_ZaCWR5H93EP7hOE";
 const vapidSubject =
   process.env.VAPID_SUBJECT || "mailto:notifikasi@locomotiondashboardtracker.web.id";
 

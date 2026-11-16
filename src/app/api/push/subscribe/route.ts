@@ -105,7 +105,9 @@ export async function GET() {
     return NextResponse.json({
       subscribed: count > 0,
       deviceCount: count,
-      publicKey: process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || null,
+      publicKey:
+        process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ||
+        "BGeFi3XoBjv7MbKeJ9GED-oRxcJkEKfqggTokUIT9vWSW2bcWQ1EXOG42NbGkjbQM5HjF21yi9ro3XQYte_xXeg",
     });
   } catch (err: any) {
     console.error("[Push API] Failed to get subscriptions count:", err);
