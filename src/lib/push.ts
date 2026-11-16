@@ -142,7 +142,15 @@ export async function sendPushToUser(
       };
 
       try {
-        await sendNotification(pushConfig, payloadString);
+        const pushOptions = {
+          TTL: 60 * 60 * 24, // 24 hours
+          urgency: "high" as const,
+          headers: {
+            Urgency: "high",
+          },
+        };
+
+        await sendNotification(pushConfig, payloadString, pushOptions);
         sentCount++;
       } catch (err: any) {
         // HTTP 410 (Gone) or 404 (Not Found) indicates the subscription has expired or unsubscribed

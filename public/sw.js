@@ -26,28 +26,29 @@ self.addEventListener("push", (event) => {
   const body = data.body || data.message || "Ada pembaruan task di workspace Anda.";
   const url = data.url || data.link || "/dashboard";
 
+  // Clean options optimized for iOS APNs background delivery & Android
   const options = {
     body: body,
     icon: data.icon || "/icon-192.png",
     badge: data.badge || "/icon-192.png",
-    vibrate: [100, 50, 100],
     data: {
       url: url,
       taskId: data.taskId,
       type: data.type,
       dateOfArrival: Date.now(),
     },
-    actions: [
-      {
-        action: "open",
-        title: "Buka",
-      },
-    ],
     tag: data.taskId ? `task-${data.taskId}` : `locomotion-notif-${Date.now()}`,
-    renotify: true,
   };
 
-  event.waitUntil(self.registration.showNotification(title, options));
+  event.waitUntil(
+    self.registration.showNotification(title, options).catch((err) => {
+      console.error("[SW] showNotification error:", err);
+      return self.registration.showNotification(title, {
+        body: body,
+        icon: "/icon-192.png",
+      });
+    })
+  );
 });
 
 // Handle notification tap / click
