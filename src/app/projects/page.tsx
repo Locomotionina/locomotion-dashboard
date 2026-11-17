@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { getProjects } from "@/actions/projects";
 import { getCurrentUser } from "@/lib/auth";
 import { ProjectBoardClient } from "./ProjectBoardClient";
@@ -5,9 +6,14 @@ import { NewProjectDialog } from "./NewProjectDialog";
 import { Badge } from "@/components/ui/badge";
 import { Sparkles, ShieldCheck } from "lucide-react";
 
-export default async function ProjectsPage() {
+export default async function ProjectsPage({
+  searchParams,
+}: {
+  searchParams?: { projectId?: string };
+}) {
   const projects = await getProjects();
   const user = await getCurrentUser();
+  const initialProjectId = searchParams?.projectId;
 
   return (
     <div className="space-y-8 py-4">
@@ -38,21 +44,24 @@ export default async function ProjectsPage() {
         )}
       </div>
 
-      {/* Board Client */}
-      <ProjectBoardClient
-        projects={projects as any}
-        currentUser={
-          user
-            ? {
-                id: user.id,
-                name: user.name,
-                role: user.role,
-                position: user.position,
-                department: user.department,
-              }
-            : null
-        }
-      />
+      {/* Board Client with Suspense boundary */}
+      <Suspense fallback={null}>
+        <ProjectBoardClient
+          projects={projects as any}
+          initialProjectId={initialProjectId}
+          currentUser={
+            user
+              ? {
+                  id: user.id,
+                  name: user.name,
+                  role: user.role,
+                  position: user.position,
+                  department: user.department,
+                }
+              : null
+          }
+        />
+      </Suspense>
     </div>
   );
 }

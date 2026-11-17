@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -41,6 +41,7 @@ import { formatDate, formatRelativeDays, renderTextWithLinks } from "@/lib/utils
 import { canDeleteProject } from "@/lib/departments";
 import { deleteProjectAction } from "@/actions/projects";
 import { MiniCalendarRangePicker } from "./MiniCalendarRangePicker";
+import { ProjectDiscussionThread } from "@/components/ProjectDiscussionThread";
 
 interface ProjectItem {
   id: string;
@@ -84,6 +85,7 @@ interface ProjectItem {
 
 interface ProjectBoardClientProps {
   projects: ProjectItem[];
+  initialProjectId?: string;
   currentUser?: {
     id: string;
     name: string;
@@ -95,8 +97,13 @@ interface ProjectBoardClientProps {
 
 type TimelineFilterMode = "NONE" | "MODE_A" | "MODE_B";
 
-export function ProjectBoardClient({ projects, currentUser }: ProjectBoardClientProps) {
+export function ProjectBoardClient({
+  projects,
+  initialProjectId,
+  currentUser,
+}: ProjectBoardClientProps) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [projectsList, setProjectsList] = useState<ProjectItem[]>(projects);
 
   // Sync state if initial prop changes
@@ -105,7 +112,24 @@ export function ProjectBoardClient({ projects, currentUser }: ProjectBoardClient
   }, [projects]);
 
   // Selected project for Project Detail modal
-  const [detailProject, setDetailProject] = useState<ProjectItem | null>(null);
+  const [detailProject, setDetailProject] = useState<ProjectItem | null>(() => {
+    if (initialProjectId) {
+      const found = projects.find((p) => p.id === initialProjectId);
+      return found || null;
+    }
+    return null;
+  });
+
+  // Sync detail project when searchParams or initialProjectId changes (e.g. from Push Notification deep-link)
+  useEffect(() => {
+    const targetId = searchParams?.get("projectId") || initialProjectId;
+    if (targetId && projectsList.length > 0) {
+      const match = projectsList.find((p) => p.id === targetId);
+      if (match && (!detailProject || detailProject.id !== match.id)) {
+        setDetailProject(match);
+      }
+    }
+  }, [searchParams, initialProjectId, projectsList, detailProject]);
 
   // Selected project for Delete Confirmation modal
   const [confirmDeleteProject, setConfirmDeleteProject] = useState<ProjectItem | null>(null);
@@ -716,9 +740,16 @@ export function ProjectBoardClient({ projects, currentUser }: ProjectBoardClient
       {/* Project Detail Modal / Info Panel */}
       <Dialog
         open={!!detailProject}
-        onOpenChange={(open) => !open && setDetailProject(null)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDetailProject(null);
+            if (searchParams?.get("projectId")) {
+              router.replace("/projects", { scroll: false });
+            }
+          }
+        }}
       >
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto space-y-5">
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto space-y-5">
           {detailProject && (() => {
             const totalTasks =
               detailProject.activeTasksCount + detailProject.doneTasksCount;
@@ -870,6 +901,14 @@ export function ProjectBoardClient({ projects, currentUser }: ProjectBoardClient
                       </div>
                     )}
                   </div>
+
+                  {/* Project In-App Discussion & Realtime Chat Thread */}
+                  <div className="pt-2 border-t border-border/50">
+                    <ProjectDiscussionThread
+                      projectId={detailProject.id}
+                      currentUser={currentUser}
+                    />
+                  </div>
                 </div>
 
                 {/* Detail Modal Footer / Actions */}
@@ -896,7 +935,12 @@ export function ProjectBoardClient({ projects, currentUser }: ProjectBoardClient
                       type="button"
                       variant="outline"
                       size="sm"
-                      onClick={() => setDetailProject(null)}
+                      onClick={() => {
+                        setDetailProject(null);
+                        if (searchParams?.get("projectId")) {
+                          router.replace("/projects", { scroll: false });
+                        }
+                      }}
                       className="text-xs h-9"
                     >
                       Tutup

@@ -7,6 +7,7 @@ import { ProjectDeliverablesHub } from "./ProjectDeliverablesHub";
 import { AutomatedPICRoster } from "./AutomatedPICRoster";
 import { ProjectDescriptionsSection } from "./ProjectDescriptionsSection";
 import { ProjectHeroHeader } from "./ProjectHeroHeader";
+import { ProjectDiscussionThread } from "@/components/ProjectDiscussionThread";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import {
@@ -136,6 +137,22 @@ export default async function ProjectDetailPage({
           finalAssetsUrl={project.finalAssetsUrl}
           customDeliverables={project.deliverables as any}
           canManageDeliverables={canManageDeliverables(currentUser?.position, currentUser?.department)}
+        />
+
+        {/* Project In-App Discussion Thread */}
+        <ProjectDiscussionThread
+          projectId={project.id}
+          currentUser={
+            currentUser
+              ? {
+                  id: currentUser.id,
+                  name: currentUser.name,
+                  role: currentUser.role,
+                  position: currentUser.position,
+                  avatarUrl: currentUser.avatarUrl,
+                }
+              : null
+          }
         />
 
         {/* Automated PIC Roster & Modern Task Breakdown Table */}

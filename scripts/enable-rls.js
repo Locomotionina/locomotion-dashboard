@@ -14,6 +14,7 @@ async function main() {
     "ProfileUpdateRequest",
     "PasswordResetRequest",
     "push_subscriptions",
+    "project_messages",
   ];
 
   for (const table of tables) {

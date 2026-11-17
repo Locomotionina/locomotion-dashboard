@@ -14,6 +14,7 @@ import {
   Info,
   Clock,
   ExternalLink,
+  MessageSquare,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -87,6 +88,12 @@ function getNotificationBadge(type: string) {
         icon: CheckCircle2,
         color: "text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 border-emerald-500/20",
         label: "Selesai",
+      };
+    case "PROJECT_CHAT":
+      return {
+        icon: MessageSquare,
+        color: "text-blue-600 dark:text-blue-400 bg-blue-500/10 border-blue-500/20",
+        label: "Chat Project",
       };
     default:
       return {

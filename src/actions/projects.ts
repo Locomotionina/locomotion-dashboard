@@ -6,6 +6,7 @@ import { revalidatePath } from "next/cache";
 import { isValidDeliverableUrl } from "@/lib/security";
 import { canManageDeliverables } from "@/lib/deliverables";
 import { canDeleteProject } from "@/lib/departments";
+import { sendPushToUser, PushNotificationPayload } from "@/lib/push";
 
 export { canDeleteProject };
 
@@ -654,6 +655,176 @@ export async function deleteProjectAction(projectId: string) {
       success: false,
       error: error.message || "Terjadi kesalahan internal saat menghapus project.",
     };
+  }
+}
+
+/**
+ * Fetch all chat messages for a specific project ordered by creation time ascending.
+ */
+export async function getProjectMessagesAction(projectId: string) {
+  const currentUser = await getCurrentUser();
+  if (!currentUser) {
+    return { success: false, error: "Unauthorized", messages: [] };
+  }
+
+  if (!projectId) {
+    return { success: false, error: "Project ID is required.", messages: [] };
+  }
+
+  try {
+    const messages = await prisma.projectMessage.findMany({
+      where: { projectId },
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            username: true,
+            role: true,
+            position: true,
+            department: true,
+            avatarUrl: true,
+          },
+        },
+      },
+      orderBy: { createdAt: "asc" },
+    });
+
+    return {
+      success: true,
+      messages: messages.map((m) => ({
+        id: m.id,
+        projectId: m.projectId,
+        userId: m.userId,
+        content: m.content,
+        createdAt: m.createdAt.toISOString(),
+        user: m.user,
+      })),
+    };
+  } catch (err: any) {
+    console.error("Failed to get project messages:", err);
+    return { success: false, error: err.message || "Failed to retrieve messages.", messages: [] };
+  }
+}
+
+/**
+ * Send a new project chat message and trigger Web Push notifications strictly
+ * to team members who are assigned (assignees / PICs) to this specific project,
+ * excluding the message sender.
+ */
+export async function sendProjectMessageAction(projectId: string, content: string) {
+  const currentUser = await getCurrentUser();
+  if (!currentUser) {
+    return { success: false, error: "Unauthorized. Silakan login terlebih dahulu." };
+  }
+
+  const trimmed = (content || "").trim();
+  if (!trimmed) {
+    return { success: false, error: "Pesan tidak boleh kosong." };
+  }
+
+  if (!projectId) {
+    return { success: false, error: "Project ID is required." };
+  }
+
+  try {
+    // 1. Fetch project to ensure existence and obtain project name
+    const project = await prisma.project.findUnique({
+      where: { id: projectId },
+      select: { id: true, name: true, code: true },
+    });
+
+    if (!project) {
+      return { success: false, error: "Project tidak ditemukan." };
+    }
+
+    // 2. Insert message into project_messages
+    const newMessage = await prisma.projectMessage.create({
+      data: {
+        projectId,
+        userId: currentUser.id,
+        content: trimmed,
+      },
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            username: true,
+            role: true,
+            position: true,
+            department: true,
+            avatarUrl: true,
+          },
+        },
+      },
+    });
+
+    // 3. Query ONLY the users who are registered as assignees / PICs on that specific project (exclude sender)
+    const projectTasks = await prisma.task.findMany({
+      where: { projectId },
+      select: { userId: true },
+    });
+
+    const assigneeIds = Array.from(
+      new Set(projectTasks.map((t) => t.userId))
+    ).filter((id): id is string => Boolean(id) && id !== currentUser.id);
+
+    // 4. Targeted Web Push Notification & In-App Notification strictly to matched assignees
+    if (assigneeIds.length > 0) {
+      // Truncate message content to max 70 chars
+      const truncated = trimmed.length > 70 ? `${trimmed.substring(0, 67)}...` : trimmed;
+      const pushTitle = `💬 Chat Project • ${project.name}`;
+      const pushBody = `${currentUser.name}: ${truncated}`;
+      const targetUrl = `/projects?projectId=${projectId}`;
+
+      const pushPayload: PushNotificationPayload = {
+        title: pushTitle,
+        body: pushBody,
+        url: targetUrl,
+        icon: "/icon-192.png",
+        badge: "/icon-192.png",
+        tag: `project-chat-${projectId}`,
+        type: "PROJECT_CHAT",
+      };
+
+      // Dispatch Web Push notifications exclusively to those matched user_id subscriptions
+      for (const assigneeId of assigneeIds) {
+        sendPushToUser(assigneeId, pushPayload).catch((pushErr) => {
+          console.error(`[WebPush] Failed sending push to assignee ${assigneeId}:`, pushErr);
+        });
+
+        // Also record an in-app notification in DB so it shows up in their Notification Bell
+        prisma.notification
+          .create({
+            data: {
+              userId: assigneeId,
+              title: pushTitle,
+              message: pushBody,
+              type: "PROJECT_CHAT",
+              link: targetUrl,
+            },
+          })
+          .catch((notifErr) => {
+            console.error(`[Notification] Failed creating notification for assignee ${assigneeId}:`, notifErr);
+          });
+      }
+    }
+
+    return {
+      success: true,
+      message: {
+        id: newMessage.id,
+        projectId: newMessage.projectId,
+        userId: newMessage.userId,
+        content: newMessage.content,
+        createdAt: newMessage.createdAt.toISOString(),
+        user: newMessage.user,
+      },
+    };
+  } catch (err: any) {
+    console.error("Failed to send project message:", err);
+    return { success: false, error: err.message || "Failed to send message." };
   }
 }
 
