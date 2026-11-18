@@ -15,6 +15,7 @@ async function main() {
     "PasswordResetRequest",
     "push_subscriptions",
     "project_messages",
+    "project_chat_reads",
   ];
 
   for (const table of tables) {

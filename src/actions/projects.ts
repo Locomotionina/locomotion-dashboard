@@ -11,6 +11,7 @@ import { sendPushToUser, PushNotificationPayload } from "@/lib/push";
 export { canDeleteProject };
 
 export async function getProjects(filterStatus?: string) {
+  const currentUser = await getCurrentUser();
   const whereClause: any = {};
   if (filterStatus && filterStatus !== "ALL") {
     whereClause.status = filterStatus;
@@ -30,6 +31,7 @@ export async function getProjects(filterStatus?: string) {
             select: {
               id: true,
               name: true,
+              username: true,
               position: true,
               department: true,
               avatarUrl: true,
@@ -46,6 +48,50 @@ export async function getProjects(filterStatus?: string) {
     },
     orderBy: { updatedAt: "desc" },
   });
+
+  // Calculate unread mentions and replies for the current logged-in user
+  const unreadMentionCounts = new Map<string, number>();
+
+  if (currentUser) {
+    try {
+      // 1. Fetch user's chat read timestamps for all projects
+      const chatReads = await prisma.projectChatRead.findMany({
+        where: { userId: currentUser.id },
+        select: { projectId: true, lastReadAt: true },
+      });
+      const readMap = new Map<string, Date>();
+      for (const r of chatReads) {
+        readMap.set(r.projectId, r.lastReadAt);
+      }
+
+      // 2. Query all messages mentioning or replying to currentUser (excluding messages sent by currentUser)
+      const relevantMessages = await prisma.projectMessage.findMany({
+        where: {
+          userId: { not: currentUser.id },
+          OR: [
+            { mentionedUserIds: { has: currentUser.id } },
+            { replyTo: { userId: currentUser.id } },
+          ],
+        },
+        select: {
+          projectId: true,
+          createdAt: true,
+        },
+      });
+
+      for (const msg of relevantMessages) {
+        const lastRead = readMap.get(msg.projectId);
+        if (!lastRead || msg.createdAt > lastRead) {
+          unreadMentionCounts.set(
+            msg.projectId,
+            (unreadMentionCounts.get(msg.projectId) || 0) + 1
+          );
+        }
+      }
+    } catch (e) {
+      console.error("Failed to compute unreadMentionCounts:", e);
+    }
+  }
 
   return projects.map((p) => {
     // Single-pass O(N) calculation for PICs and status tallies
@@ -82,6 +128,7 @@ export async function getProjects(filterStatus?: string) {
       pics: Array.from(picMap.values()),
       activeTasksCount,
       doneTasksCount,
+      unreadMentionCount: unreadMentionCounts.get(p.id) || 0,
     };
   });
 }
@@ -178,9 +225,40 @@ export async function getProjectById(id: string) {
     (a, b) => b.activeTasks - a.activeTasks
   );
 
+  let unreadMentionCount = 0;
+  const currentUser = await getCurrentUser();
+  if (currentUser) {
+    try {
+      const chatRead = await prisma.projectChatRead.findUnique({
+        where: {
+          userId_projectId: {
+            userId: currentUser.id,
+            projectId: id,
+          },
+        },
+        select: { lastReadAt: true },
+      });
+
+      unreadMentionCount = await prisma.projectMessage.count({
+        where: {
+          projectId: id,
+          userId: { not: currentUser.id },
+          ...(chatRead?.lastReadAt ? { createdAt: { gt: chatRead.lastReadAt } } : {}),
+          OR: [
+            { mentionedUserIds: { has: currentUser.id } },
+            { replyTo: { userId: currentUser.id } },
+          ],
+        },
+      });
+    } catch (e) {
+      console.error("Failed to compute project unreadMentionCount:", e);
+    }
+  }
+
   return {
     ...project,
     pics,
+    unreadMentionCount,
   };
 }
 
@@ -659,19 +737,109 @@ export async function deleteProjectAction(projectId: string) {
 }
 
 /**
- * Fetch all chat messages for a specific project ordered by creation time ascending.
+ * Upsert read status for the current user on a specific project chat.
+ */
+export async function markProjectChatAsReadAction(projectId: string) {
+  const currentUser = await getCurrentUser();
+  if (!currentUser || !projectId) {
+    return { success: false, error: "Unauthorized or missing projectId" };
+  }
+
+  try {
+    const now = new Date();
+    await prisma.projectChatRead.upsert({
+      where: {
+        userId_projectId: {
+          userId: currentUser.id,
+          projectId,
+        },
+      },
+      create: {
+        userId: currentUser.id,
+        projectId,
+        lastReadAt: now,
+      },
+      update: {
+        lastReadAt: now,
+      },
+    });
+
+    return { success: true };
+  } catch (err: any) {
+    console.error("Failed to mark project chat as read:", err);
+    return { success: false, error: err.message || "Failed to mark chat as read." };
+  }
+}
+
+/**
+ * Fetch all chat messages for a specific project ordered by creation time ascending,
+ * including quote replies, tagged assignees list, and auto-clearing unread badge.
  */
 export async function getProjectMessagesAction(projectId: string) {
   const currentUser = await getCurrentUser();
   if (!currentUser) {
-    return { success: false, error: "Unauthorized", messages: [] };
+    return {
+      success: false,
+      error: "Unauthorized",
+      messages: [],
+      assignees: [],
+      unreadMentionCount: 0,
+    };
   }
 
   if (!projectId) {
-    return { success: false, error: "Project ID is required.", messages: [] };
+    return {
+      success: false,
+      error: "Project ID is required.",
+      messages: [],
+      assignees: [],
+      unreadMentionCount: 0,
+    };
   }
 
   try {
+    // 1. Fetch unread mention & reply count for current user prior to marking as read
+    const chatRead = await prisma.projectChatRead.findUnique({
+      where: {
+        userId_projectId: {
+          userId: currentUser.id,
+          projectId,
+        },
+      },
+      select: { lastReadAt: true },
+    });
+
+    const unreadMentionCount = await prisma.projectMessage.count({
+      where: {
+        projectId,
+        userId: { not: currentUser.id },
+        ...(chatRead?.lastReadAt ? { createdAt: { gt: chatRead.lastReadAt } } : {}),
+        OR: [
+          { mentionedUserIds: { has: currentUser.id } },
+          { replyTo: { userId: currentUser.id } },
+        ],
+      },
+    });
+
+    // 2. Auto-clear: upsert read status so subsequent visits see 0 unread
+    await prisma.projectChatRead.upsert({
+      where: {
+        userId_projectId: {
+          userId: currentUser.id,
+          projectId,
+        },
+      },
+      create: {
+        userId: currentUser.id,
+        projectId,
+        lastReadAt: new Date(),
+      },
+      update: {
+        lastReadAt: new Date(),
+      },
+    });
+
+    // 3. Query messages including author and quoted reply details
     const messages = await prisma.projectMessage.findMany({
       where: { projectId },
       include: {
@@ -686,33 +854,93 @@ export async function getProjectMessagesAction(projectId: string) {
             avatarUrl: true,
           },
         },
+        replyTo: {
+          select: {
+            id: true,
+            content: true,
+            userId: true,
+            user: {
+              select: {
+                id: true,
+                name: true,
+              },
+            },
+          },
+        },
       },
       orderBy: { createdAt: "asc" },
     });
 
+    // 4. Query project assignees (PICs) exclusively for autocomplete (exclude current sender)
+    const projectTasks = await prisma.task.findMany({
+      where: { projectId },
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            username: true,
+            role: true,
+            position: true,
+            department: true,
+            avatarUrl: true,
+          },
+        },
+      },
+    });
+
+    const assigneesMap = new Map<string, any>();
+    for (const t of projectTasks) {
+      if (t.user && t.user.id !== currentUser.id) {
+        assigneesMap.set(t.user.id, t.user);
+      }
+    }
+
     return {
       success: true,
+      unreadMentionCount,
+      assignees: Array.from(assigneesMap.values()),
       messages: messages.map((m) => ({
         id: m.id,
         projectId: m.projectId,
         userId: m.userId,
         content: m.content,
+        replyToId: m.replyToId,
+        replyTo: m.replyTo
+          ? {
+              id: m.replyTo.id,
+              content: m.replyTo.content,
+              userId: m.replyTo.userId,
+              userName: m.replyTo.user?.name || "Member",
+            }
+          : null,
+        mentionedUserIds: m.mentionedUserIds,
         createdAt: m.createdAt.toISOString(),
         user: m.user,
       })),
     };
   } catch (err: any) {
     console.error("Failed to get project messages:", err);
-    return { success: false, error: err.message || "Failed to retrieve messages.", messages: [] };
+    return {
+      success: false,
+      error: err.message || "Failed to retrieve messages.",
+      messages: [],
+      assignees: [],
+      unreadMentionCount: 0,
+    };
   }
 }
 
 /**
- * Send a new project chat message and trigger Web Push notifications strictly
- * to team members who are assigned (assignees / PICs) to this specific project,
- * excluding the message sender.
+ * Send a new project chat message with optional reply_to_id and mentioned_user_ids,
+ * triggering customized Web Push notifications strictly to assignees (and replied users).
  */
-export async function sendProjectMessageAction(projectId: string, content: string) {
+export async function sendProjectMessageAction(
+  projectId: string,
+  content: string,
+  replyToId?: string | null,
+  mentionedUserIds: string[] = []
+) {
   const currentUser = await getCurrentUser();
   if (!currentUser) {
     return { success: false, error: "Unauthorized. Silakan login terlebih dahulu." };
@@ -738,13 +966,29 @@ export async function sendProjectMessageAction(projectId: string, content: strin
       return { success: false, error: "Project tidak ditemukan." };
     }
 
-    // 2. Insert message into project_messages
-    const newMessage = await prisma.projectMessage.create({
-      data: {
-        projectId,
-        userId: currentUser.id,
-        content: trimmed,
-      },
+    // 2. Validate replyToId if supplied
+    let replyToMessage: {
+      id: string;
+      userId: string;
+      content: string;
+      user: { name: string } | null;
+    } | null = null;
+
+    if (replyToId) {
+      replyToMessage = await prisma.projectMessage.findUnique({
+        where: { id: replyToId },
+        select: {
+          id: true,
+          userId: true,
+          content: true,
+          user: { select: { name: true } },
+        },
+      });
+    }
+
+    // 3. Query ONLY the users who are registered as assignees / PICs on that specific project (exclude sender)
+    const projectTasks = await prisma.task.findMany({
+      where: { projectId },
       include: {
         user: {
           select: {
@@ -760,53 +1004,139 @@ export async function sendProjectMessageAction(projectId: string, content: strin
       },
     });
 
-    // 3. Query ONLY the users who are registered as assignees / PICs on that specific project (exclude sender)
-    const projectTasks = await prisma.task.findMany({
-      where: { projectId },
-      select: { userId: true },
+    const assigneeMap = new Map<string, any>();
+    for (const t of projectTasks) {
+      if (t.user && t.user.id !== currentUser.id) {
+        assigneeMap.set(t.user.id, t.user);
+      }
+    }
+
+    // 4. Validate and sanitize mentioned_user_ids (only valid project assignees)
+    // Also detect "@Full Name" in message content matching assignees
+    const finalMentionedUserIds = new Set<string>();
+    if (Array.isArray(mentionedUserIds)) {
+      for (const id of mentionedUserIds) {
+        if (assigneeMap.has(id)) {
+          finalMentionedUserIds.add(id);
+        }
+      }
+    }
+
+    const lowerContent = trimmed.toLowerCase();
+    assigneeMap.forEach((user, id) => {
+      if (user.name && lowerContent.includes(`@${user.name.toLowerCase()}`)) {
+        finalMentionedUserIds.add(id);
+      }
+    });
+    const sanitizedMentionedUserIds = Array.from(finalMentionedUserIds);
+
+    // 5. Insert message into project_messages
+    const newMessage = await prisma.projectMessage.create({
+      data: {
+        projectId,
+        userId: currentUser.id,
+        content: trimmed,
+        replyToId: replyToMessage?.id || null,
+        mentionedUserIds: sanitizedMentionedUserIds,
+      },
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            username: true,
+            role: true,
+            position: true,
+            department: true,
+            avatarUrl: true,
+          },
+        },
+        replyTo: {
+          select: {
+            id: true,
+            content: true,
+            userId: true,
+            user: {
+              select: {
+                id: true,
+                name: true,
+              },
+            },
+          },
+        },
+      },
     });
 
-    const assigneeIds = Array.from(
-      new Set(projectTasks.map((t) => t.userId))
-    ).filter((id): id is string => Boolean(id) && id !== currentUser.id);
+    // 6. Auto-mark read status for sender
+    await prisma.projectChatRead.upsert({
+      where: {
+        userId_projectId: {
+          userId: currentUser.id,
+          projectId,
+        },
+      },
+      create: {
+        userId: currentUser.id,
+        projectId,
+        lastReadAt: new Date(),
+      },
+      update: {
+        lastReadAt: new Date(),
+      },
+    });
 
-    // 4. Targeted Web Push Notification & In-App Notification strictly to matched assignees
-    if (assigneeIds.length > 0) {
-      // Truncate message content to max 70 chars
+    // 7. Targeted Web Push Notification & In-App Notification
+    // Recipients: All assignees + (if replied message author is not sender and not in assignees)
+    const recipientIds = Array.from(
+      new Set([
+        ...Array.from(assigneeMap.keys()),
+        ...(replyToMessage && replyToMessage.userId !== currentUser.id ? [replyToMessage.userId] : []),
+      ])
+    );
+
+    if (recipientIds.length > 0) {
       const truncated = trimmed.length > 70 ? `${trimmed.substring(0, 67)}...` : trimmed;
-      const pushTitle = `💬 Chat Project • ${project.name}`;
-      const pushBody = `${currentUser.name}: ${truncated}`;
       const targetUrl = `/projects?projectId=${projectId}`;
 
-      const pushPayload: PushNotificationPayload = {
-        title: pushTitle,
-        body: pushBody,
-        url: targetUrl,
-        icon: "/icon-192.png",
-        badge: "/icon-192.png",
-        tag: `project-chat-${projectId}`,
-        type: "PROJECT_CHAT",
-      };
+      for (const recipientId of recipientIds) {
+        const isMentionedOrReplied =
+          sanitizedMentionedUserIds.includes(recipientId) ||
+          (replyToMessage && replyToMessage.userId === recipientId);
 
-      // Dispatch Web Push notifications exclusively to those matched user_id subscriptions
-      for (const assigneeId of assigneeIds) {
-        sendPushToUser(assigneeId, pushPayload).catch((pushErr) => {
-          console.error(`[WebPush] Failed sending push to assignee ${assigneeId}:`, pushErr);
+        // Requirement 5:
+        // For mentioned/replied users: title: "🔔 [Sender Name] menyebutmu • [Project Name]"
+        // For other project assignees: title: "💬 Chat Project • [Project Name]"
+        const pushTitle = isMentionedOrReplied
+          ? `🔔 ${currentUser.name} menyebutmu • ${project.name}`
+          : `💬 Chat Project • ${project.name}`;
+        const pushBody = `${currentUser.name}: ${truncated}`;
+
+        const pushPayload: PushNotificationPayload = {
+          title: pushTitle,
+          body: pushBody,
+          url: targetUrl,
+          icon: "/icon-192.png",
+          badge: "/icon-192.png",
+          tag: `project-chat-${projectId}`,
+          type: "PROJECT_CHAT",
+        };
+
+        sendPushToUser(recipientId, pushPayload).catch((pushErr) => {
+          console.error(`[WebPush] Failed sending push to assignee ${recipientId}:`, pushErr);
         });
 
-        // Also record an in-app notification in DB so it shows up in their Notification Bell
         prisma.notification
           .create({
             data: {
-              userId: assigneeId,
+              userId: recipientId,
               title: pushTitle,
               message: pushBody,
-              type: "PROJECT_CHAT",
+              type: isMentionedOrReplied ? "PROJECT_CHAT_MENTION" : "PROJECT_CHAT",
               link: targetUrl,
             },
           })
           .catch((notifErr) => {
-            console.error(`[Notification] Failed creating notification for assignee ${assigneeId}:`, notifErr);
+            console.error(`[Notification] Failed creating notification for assignee ${recipientId}:`, notifErr);
           });
       }
     }
@@ -818,6 +1148,16 @@ export async function sendProjectMessageAction(projectId: string, content: strin
         projectId: newMessage.projectId,
         userId: newMessage.userId,
         content: newMessage.content,
+        replyToId: newMessage.replyToId,
+        replyTo: newMessage.replyTo
+          ? {
+              id: newMessage.replyTo.id,
+              content: newMessage.replyTo.content,
+              userId: newMessage.replyTo.userId,
+              userName: newMessage.replyTo.user?.name || "Member",
+            }
+          : null,
+        mentionedUserIds: newMessage.mentionedUserIds,
         createdAt: newMessage.createdAt.toISOString(),
         user: newMessage.user,
       },

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
@@ -62,6 +62,7 @@ interface ProjectItem {
   finalAssetsUrl: string | null;
   activeTasksCount: number;
   doneTasksCount: number;
+  unreadMentionCount?: number;
   pics: {
     id: string;
     name: string;
@@ -182,6 +183,24 @@ export function ProjectBoardClient({
       setIsDeleting(false);
     }
   };
+
+  // Unread mention counts tracked per project
+  const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>(() => {
+    const initial: Record<string, number> = {};
+    projects.forEach((p) => {
+      if (p.unreadMentionCount) {
+        initial[p.id] = p.unreadMentionCount;
+      }
+    });
+    return initial;
+  });
+
+  const handleChatRead = useCallback((projectId: string) => {
+    setUnreadCounts((prev) => {
+      if (!prev[projectId]) return prev;
+      return { ...prev, [projectId]: 0 };
+    });
+  }, []);
 
   const [search, setSearch] = useState("");
   const [selectedStatus, setSelectedStatus] = useState("ALL");
@@ -606,6 +625,32 @@ export function ProjectBoardClient({
                       </span>
                       {/* Prominent Remaining Days Countdown Indicator at the top */}
                       {renderCountdownBadge(project.deadline)}
+
+                      {/* Location 1: Front Face Unread Mention / Reply Indicator Badge */}
+                      {((unreadCounts[project.id] ?? project.unreadMentionCount ?? 0) > 0) && (
+                        <span
+                          role="button"
+                          tabIndex={0}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setDetailProject(project);
+                            handleChatRead(project.id);
+                          }}
+                          className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-500/15 border border-amber-500/35 text-amber-600 dark:text-amber-400 shadow-xs animate-pulse cursor-pointer hover:bg-amber-500/25 transition-all"
+                          title={`${unreadCounts[project.id] ?? project.unreadMentionCount} mention atau balasan belum dibaca`}
+                        >
+                          <span className="relative flex h-2 w-2">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
+                            <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500" />
+                          </span>
+                          <span>
+                            @ Kamu di-tag
+                            {(unreadCounts[project.id] ?? project.unreadMentionCount ?? 0) > 1
+                              ? ` (${unreadCounts[project.id] ?? project.unreadMentionCount})`
+                              : ""}
+                          </span>
+                        </span>
+                      )}
                     </div>
                     {getStatusBadge(project.status)}
                   </div>
@@ -907,6 +952,9 @@ export function ProjectBoardClient({
                     <ProjectDiscussionThread
                       projectId={detailProject.id}
                       currentUser={currentUser}
+                      initialUnreadCount={unreadCounts[detailProject.id] ?? detailProject.unreadMentionCount ?? 0}
+                      onChatRead={handleChatRead}
+                      assignees={detailProject.pics}
                     />
                   </div>
                 </div>

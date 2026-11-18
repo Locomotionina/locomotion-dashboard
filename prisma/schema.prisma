@@ -31,7 +31,8 @@ model User {
   profileRequests    ProfileUpdateRequest[]
   passwordRequests   PasswordResetRequest[]
   projectMessages    ProjectMessage[]
-  createdAt      DateTime @default(now())
+  projectChatReads   ProjectChatRead[]
+  createdAt          DateTime @default(now())
   updatedAt      DateTime @updatedAt
 }
 
@@ -57,6 +58,7 @@ model Project {
   tasks           Task[]
   folders         TaskFolder[]
   messages        ProjectMessage[]
+  chatReads       ProjectChatRead[]
   createdById     String?
   createdAt       DateTime             @default(now())
   updatedAt       DateTime             @updatedAt
@@ -216,15 +218,33 @@ model PushSubscription {
 }
 
 model ProjectMessage {
-  id        String   @id @default(uuid())
-  projectId String   @map("project_id")
-  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  userId    String   @map("user_id")
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  content   String
-  createdAt DateTime @default(now()) @map("created_at")
+  id               String           @id @default(uuid())
+  projectId        String           @map("project_id")
+  project          Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  userId           String           @map("user_id")
+  user             User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  content          String
+  replyToId        String?          @map("reply_to_id")
+  replyTo          ProjectMessage?  @relation("MessageReplies", fields: [replyToId], references: [id], onDelete: SetNull)
+  replies          ProjectMessage[] @relation("MessageReplies")
+  mentionedUserIds String[]         @default([]) @map("mentioned_user_ids")
+  createdAt        DateTime         @default(now()) @map("created_at")
 
   @@index([projectId])
   @@index([userId])
+  @@index([replyToId])
   @@map("project_messages")
+}
+
+model ProjectChatRead {
+  userId     String   @map("user_id")
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  projectId  String   @map("project_id")
+  project    Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  lastReadAt DateTime @default(now()) @map("last_read_at")
+
+  @@id([userId, projectId])
+  @@index([userId])
+  @@index([projectId])
+  @@map("project_chat_reads")
 }
