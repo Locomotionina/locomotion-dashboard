@@ -775,7 +775,15 @@ export async function markProjectChatAsReadAction(projectId: string) {
  * Fetch all chat messages for a specific project ordered by creation time ascending,
  * including quote replies, tagged assignees list, and auto-clearing unread badge.
  */
-export async function getProjectMessagesAction(projectId: string) {
+/**
+ * Fetch all chat messages for a specific project ordered by creation time ascending,
+ * including quote replies, tagged assignees list, and auto-clearing unread badge.
+ * Optimized with Promise.all and lightweight background polling mode.
+ */
+export async function getProjectMessagesAction(
+  projectId: string,
+  isPoll = false
+) {
   const currentUser = await getCurrentUser();
   if (!currentUser) {
     return {
@@ -798,97 +806,160 @@ export async function getProjectMessagesAction(projectId: string) {
   }
 
   try {
-    // 1. Fetch unread mention & reply count for current user prior to marking as read
-    const chatRead = await prisma.projectChatRead.findUnique({
-      where: {
-        userId_projectId: {
-          userId: currentUser.id,
-          projectId,
-        },
-      },
-      select: { lastReadAt: true },
-    });
-
-    const unreadMentionCount = await prisma.projectMessage.count({
-      where: {
-        projectId,
-        userId: { not: currentUser.id },
-        ...(chatRead?.lastReadAt ? { createdAt: { gt: chatRead.lastReadAt } } : {}),
-        OR: [
-          { mentionedUserIds: { has: currentUser.id } },
-          { replyTo: { userId: currentUser.id } },
-        ],
-      },
-    });
-
-    // 2. Auto-clear: upsert read status so subsequent visits see 0 unread
-    await prisma.projectChatRead.upsert({
-      where: {
-        userId_projectId: {
-          userId: currentUser.id,
-          projectId,
-        },
-      },
-      create: {
-        userId: currentUser.id,
-        projectId,
-        lastReadAt: new Date(),
-      },
-      update: {
-        lastReadAt: new Date(),
-      },
-    });
-
-    // 3. Query messages including author and quoted reply details
-    const messages = await prisma.projectMessage.findMany({
-      where: { projectId },
-      include: {
-        user: {
-          select: {
-            id: true,
-            name: true,
-            username: true,
-            role: true,
-            position: true,
-            department: true,
-            avatarUrl: true,
+    // If this is a background polling tick, run ONLY the messages query
+    if (isPoll) {
+      const messages = await prisma.projectMessage.findMany({
+        where: { projectId },
+        include: {
+          user: {
+            select: {
+              id: true,
+              name: true,
+              username: true,
+              role: true,
+              position: true,
+              department: true,
+              avatarUrl: true,
+            },
           },
-        },
-        replyTo: {
-          select: {
-            id: true,
-            content: true,
-            userId: true,
-            user: {
-              select: {
-                id: true,
-                name: true,
+          replyTo: {
+            select: {
+              id: true,
+              content: true,
+              userId: true,
+              user: {
+                select: {
+                  id: true,
+                  name: true,
+                },
               },
             },
           },
         },
-      },
-      orderBy: { createdAt: "asc" },
-    });
+        orderBy: { createdAt: "asc" },
+      });
 
-    // 4. Query project assignees (PICs) exclusively for autocomplete (exclude current sender)
-    const projectTasks = await prisma.task.findMany({
-      where: { projectId },
-      include: {
-        user: {
-          select: {
-            id: true,
-            name: true,
-            username: true,
-            role: true,
-            position: true,
-            department: true,
-            avatarUrl: true,
+      return {
+        success: true,
+        unreadMentionCount: 0,
+        assignees: [],
+        messages: messages.map((m) => ({
+          id: m.id,
+          projectId: m.projectId,
+          userId: m.userId,
+          content: m.content,
+          replyToId: m.replyToId,
+          replyTo: m.replyTo
+            ? {
+                id: m.replyTo.id,
+                content: m.replyTo.content,
+                userId: m.replyTo.userId,
+                userName: m.replyTo.user?.name || "Member",
+              }
+            : null,
+          mentionedUserIds: m.mentionedUserIds,
+          createdAt: m.createdAt.toISOString(),
+          user: m.user,
+        })),
+      };
+    }
+
+    // Full load: Execute queries in parallel for high speed
+    const [chatRead, messages, projectTasks] = await Promise.all([
+      prisma.projectChatRead.findUnique({
+        where: {
+          userId_projectId: {
+            userId: currentUser.id,
+            projectId,
           },
         },
-      },
-    });
+        select: { lastReadAt: true },
+      }),
+      prisma.projectMessage.findMany({
+        where: { projectId },
+        include: {
+          user: {
+            select: {
+              id: true,
+              name: true,
+              username: true,
+              role: true,
+              position: true,
+              department: true,
+              avatarUrl: true,
+            },
+          },
+          replyTo: {
+            select: {
+              id: true,
+              content: true,
+              userId: true,
+              user: {
+                select: {
+                  id: true,
+                  name: true,
+                },
+              },
+            },
+          },
+        },
+        orderBy: { createdAt: "asc" },
+      }),
+      prisma.task.findMany({
+        where: { projectId },
+        select: {
+          user: {
+            select: {
+              id: true,
+              name: true,
+              username: true,
+              role: true,
+              position: true,
+              department: true,
+              avatarUrl: true,
+            },
+          },
+        },
+      }),
+    ]);
 
+    // Calculate unread mentions in-memory without extra DB roundtrip
+    const lastRead = chatRead?.lastReadAt;
+    let unreadMentionCount = 0;
+    for (const m of messages) {
+      if (m.userId !== currentUser.id) {
+        const isUnread = !lastRead || m.createdAt > lastRead;
+        const isTagged =
+          (Array.isArray(m.mentionedUserIds) &&
+            m.mentionedUserIds.includes(currentUser.id)) ||
+          m.replyTo?.userId === currentUser.id;
+        if (isUnread && isTagged) {
+          unreadMentionCount++;
+        }
+      }
+    }
+
+    // Auto-clear read status asynchronously (non-blocking)
+    prisma.projectChatRead
+      .upsert({
+        where: {
+          userId_projectId: {
+            userId: currentUser.id,
+            projectId,
+          },
+        },
+        create: {
+          userId: currentUser.id,
+          projectId,
+          lastReadAt: new Date(),
+        },
+        update: {
+          lastReadAt: new Date(),
+        },
+      })
+      .catch((e) => console.error("Async chat read update error:", e));
+
+    // Compile unique assignees
     const assigneesMap = new Map<string, any>();
     for (const t of projectTasks) {
       if (t.user && t.user.id !== currentUser.id) {
@@ -933,7 +1004,7 @@ export async function getProjectMessagesAction(projectId: string) {
 
 /**
  * Send a new project chat message with optional reply_to_id and mentioned_user_ids,
- * triggering customized Web Push notifications strictly to assignees (and replied users).
+ * highly optimized with parallel pre-flight queries and non-blocking background notifications.
  */
 export async function sendProjectMessageAction(
   projectId: string,
@@ -956,53 +1027,44 @@ export async function sendProjectMessageAction(
   }
 
   try {
-    // 1. Fetch project to ensure existence and obtain project name
-    const project = await prisma.project.findUnique({
-      where: { id: projectId },
-      select: { id: true, name: true, code: true },
-    });
+    // 1. Parallel pre-checks for maximum responsiveness
+    const [project, replyToMessage, projectTasks] = await Promise.all([
+      prisma.project.findUnique({
+        where: { id: projectId },
+        select: { id: true, name: true, code: true },
+      }),
+      replyToId
+        ? prisma.projectMessage.findUnique({
+            where: { id: replyToId },
+            select: {
+              id: true,
+              userId: true,
+              content: true,
+              user: { select: { name: true } },
+            },
+          })
+        : Promise.resolve(null),
+      prisma.task.findMany({
+        where: { projectId },
+        select: {
+          user: {
+            select: {
+              id: true,
+              name: true,
+              username: true,
+              role: true,
+              position: true,
+              department: true,
+              avatarUrl: true,
+            },
+          },
+        },
+      }),
+    ]);
 
     if (!project) {
       return { success: false, error: "Project tidak ditemukan." };
     }
-
-    // 2. Validate replyToId if supplied
-    let replyToMessage: {
-      id: string;
-      userId: string;
-      content: string;
-      user: { name: string } | null;
-    } | null = null;
-
-    if (replyToId) {
-      replyToMessage = await prisma.projectMessage.findUnique({
-        where: { id: replyToId },
-        select: {
-          id: true,
-          userId: true,
-          content: true,
-          user: { select: { name: true } },
-        },
-      });
-    }
-
-    // 3. Query ONLY the users who are registered as assignees / PICs on that specific project (exclude sender)
-    const projectTasks = await prisma.task.findMany({
-      where: { projectId },
-      include: {
-        user: {
-          select: {
-            id: true,
-            name: true,
-            username: true,
-            role: true,
-            position: true,
-            department: true,
-            avatarUrl: true,
-          },
-        },
-      },
-    });
 
     const assigneeMap = new Map<string, any>();
     for (const t of projectTasks) {
@@ -1011,8 +1073,7 @@ export async function sendProjectMessageAction(
       }
     }
 
-    // 4. Validate and sanitize mentioned_user_ids (only valid project assignees)
-    // Also detect "@Full Name" in message content matching assignees
+    // 2. Validate and sanitize mentioned_user_ids (only valid project assignees)
     const finalMentionedUserIds = new Set<string>();
     if (Array.isArray(mentionedUserIds)) {
       for (const id of mentionedUserIds) {
@@ -1030,7 +1091,7 @@ export async function sendProjectMessageAction(
     });
     const sanitizedMentionedUserIds = Array.from(finalMentionedUserIds);
 
-    // 5. Insert message into project_messages
+    // 3. Insert message into project_messages
     const newMessage = await prisma.projectMessage.create({
       data: {
         projectId,
@@ -1067,26 +1128,27 @@ export async function sendProjectMessageAction(
       },
     });
 
-    // 6. Auto-mark read status for sender
-    await prisma.projectChatRead.upsert({
-      where: {
-        userId_projectId: {
+    // 4. Fire-and-forget: Auto-mark read status for sender in background
+    prisma.projectChatRead
+      .upsert({
+        where: {
+          userId_projectId: {
+            userId: currentUser.id,
+            projectId,
+          },
+        },
+        create: {
           userId: currentUser.id,
           projectId,
+          lastReadAt: new Date(),
         },
-      },
-      create: {
-        userId: currentUser.id,
-        projectId,
-        lastReadAt: new Date(),
-      },
-      update: {
-        lastReadAt: new Date(),
-      },
-    });
+        update: {
+          lastReadAt: new Date(),
+        },
+      })
+      .catch((e) => console.error("Async sender read upsert error:", e));
 
-    // 7. Targeted Web Push Notification & In-App Notification
-    // Recipients: All assignees + (if replied message author is not sender and not in assignees)
+    // 5. Fire-and-forget: Targeted Web Push & In-App Notifications in background
     const recipientIds = Array.from(
       new Set([
         ...Array.from(assigneeMap.keys()),
@@ -1098,46 +1160,48 @@ export async function sendProjectMessageAction(
       const truncated = trimmed.length > 70 ? `${trimmed.substring(0, 67)}...` : trimmed;
       const targetUrl = `/projects?projectId=${projectId}`;
 
+      // Batch in-app notifications in one single query
+      const notificationsData = recipientIds.map((recipientId) => {
+        const isMentionedOrReplied =
+          sanitizedMentionedUserIds.includes(recipientId) ||
+          (replyToMessage && replyToMessage.userId === recipientId);
+
+        const pushTitle = isMentionedOrReplied
+          ? `🔔 ${currentUser.name} menyebutmu • ${project.name}`
+          : `💬 Chat Project • ${project.name}`;
+
+        return {
+          userId: recipientId,
+          title: pushTitle,
+          message: `${currentUser.name}: ${truncated}`,
+          type: isMentionedOrReplied ? "PROJECT_CHAT_MENTION" : "PROJECT_CHAT",
+          link: targetUrl,
+        };
+      });
+
+      prisma.notification
+        .createMany({ data: notificationsData })
+        .catch((err) => console.error("Async notification createMany error:", err));
+
+      // Dispatch Web Push in background
       for (const recipientId of recipientIds) {
         const isMentionedOrReplied =
           sanitizedMentionedUserIds.includes(recipientId) ||
           (replyToMessage && replyToMessage.userId === recipientId);
 
-        // Requirement 5:
-        // For mentioned/replied users: title: "🔔 [Sender Name] menyebutmu • [Project Name]"
-        // For other project assignees: title: "💬 Chat Project • [Project Name]"
         const pushTitle = isMentionedOrReplied
           ? `🔔 ${currentUser.name} menyebutmu • ${project.name}`
           : `💬 Chat Project • ${project.name}`;
-        const pushBody = `${currentUser.name}: ${truncated}`;
 
-        const pushPayload: PushNotificationPayload = {
+        sendPushToUser(recipientId, {
           title: pushTitle,
-          body: pushBody,
+          body: `${currentUser.name}: ${truncated}`,
           url: targetUrl,
           icon: "/icon-192.png",
           badge: "/icon-192.png",
           tag: `project-chat-${projectId}`,
           type: "PROJECT_CHAT",
-        };
-
-        sendPushToUser(recipientId, pushPayload).catch((pushErr) => {
-          console.error(`[WebPush] Failed sending push to assignee ${recipientId}:`, pushErr);
-        });
-
-        prisma.notification
-          .create({
-            data: {
-              userId: recipientId,
-              title: pushTitle,
-              message: pushBody,
-              type: isMentionedOrReplied ? "PROJECT_CHAT_MENTION" : "PROJECT_CHAT",
-              link: targetUrl,
-            },
-          })
-          .catch((notifErr) => {
-            console.error(`[Notification] Failed creating notification for assignee ${recipientId}:`, notifErr);
-          });
+        }).catch((err) => console.error("Async WebPush error:", err));
       }
     }
 

@@ -65,6 +65,7 @@ export interface ProjectDiscussionThreadProps {
     name: string;
     role?: string;
     position?: string;
+    department?: string;
     avatarUrl?: string | null;
   } | null;
   className?: string;
@@ -267,13 +268,13 @@ export function ProjectDiscussionThread({
       if (!isBackground) setIsLoading(true);
 
       try {
-        const res = await getProjectMessagesAction(projectId);
+        const res = await getProjectMessagesAction(projectId, isBackground);
         if (res.success && res.messages) {
           if (res.assignees && res.assignees.length > 0) {
             setAssignees(res.assignees);
           }
 
-          if (res.unreadMentionCount !== undefined) {
+          if (res.unreadMentionCount !== undefined && !isBackground) {
             setUnreadCount(res.unreadMentionCount);
             if (res.unreadMentionCount > 0) {
               setTimeout(() => {
@@ -285,8 +286,12 @@ export function ProjectDiscussionThread({
           setMessages((prev) => {
             const currentIds = new Set(prev.map((m) => m.id));
             const newMsgs = res.messages.filter((m: any) => !currentIds.has(m.id));
+            const pendingOptimistic = prev.filter((m) => m.id.startsWith("optimistic-"));
 
-            if (newMsgs.length === 0 && prev.length === res.messages.length) {
+            if (
+              newMsgs.length === 0 &&
+              prev.length === res.messages.length + pendingOptimistic.length
+            ) {
               return prev;
             }
 
@@ -294,7 +299,11 @@ export function ProjectDiscussionThread({
               setTimeout(() => scrollToBottom("smooth"), 100);
             }
 
-            return res.messages as ProjectChatMessage[];
+            // Return server messages along with any in-flight optimistic messages
+            return [
+              ...(res.messages as ProjectChatMessage[]),
+              ...pendingOptimistic,
+            ];
           });
         }
       } catch (err) {
@@ -338,6 +347,18 @@ export function ProjectDiscussionThread({
             if (payload && payload.payload) {
               const incomingMsg = payload.payload as ProjectChatMessage;
               setMessages((prev) => {
+                // If this matches an optimistic message content from same user, replace it
+                const optimisticIdx = prev.findIndex(
+                  (m) =>
+                    m.id.startsWith("optimistic-") &&
+                    m.userId === incomingMsg.userId &&
+                    m.content === incomingMsg.content
+                );
+                if (optimisticIdx !== -1) {
+                  const updated = [...prev];
+                  updated[optimisticIdx] = incomingMsg;
+                  return updated;
+                }
                 if (prev.some((m) => m.id === incomingMsg.id)) return prev;
                 return [...prev, incomingMsg];
               });
@@ -352,12 +373,12 @@ export function ProjectDiscussionThread({
       }
     }
 
-    // 3. Lightweight polling (every 3.5 seconds) for bulletproof live sync
+    // 3. Lightweight background polling (every 5 seconds) as fallback
     const pollInterval = setInterval(() => {
       if (typeof document !== "undefined" && document.visibilityState === "visible") {
         fetchMessages(true);
       }
-    }, 3500);
+    }, 5000);
 
     const handleVisibilityChange = () => {
       if (document.visibilityState === "visible") {
@@ -470,43 +491,84 @@ export function ProjectDiscussionThread({
     }, 40);
   };
 
-  // Handle message sending
+  // Handle message sending with instant zero-latency optimistic UI update
   const handleSendMessage = async () => {
     const trimmed = inputContent.trim();
-    if (!trimmed || isSubmitting) return;
+    if (!trimmed) return;
 
-    setIsSubmitting(true);
+    // Snapshot current composer states
+    const replySnapshot = replyingTo;
+    const tagsSnapshot = [...mentionedUserIds];
+
+    // 1. Instantly clear composer inputs so user can keep typing immediately
+    setInputContent("");
+    setReplyingTo(null);
+    setMentionedUserIds([]);
+    setShowMentionDropdown(false);
     setErrorMessage(null);
 
-    const replyId = replyingTo?.id || null;
-    const tagsToSend = [...mentionedUserIds];
+    // Keep textarea focused on laptop/desktop
+    setTimeout(() => {
+      textareaRef.current?.focus();
+    }, 10);
 
+    // Auto-clear unread badge if any
+    if (unreadCount > 0) {
+      setUnreadCount(0);
+      onChatRead?.(projectId);
+    }
+
+    // 2. Generate optimistic local message
+    const tempId = `optimistic-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    const optimisticMsg: ProjectChatMessage = {
+      id: tempId,
+      projectId,
+      userId: currentUser?.id || "temp-user",
+      content: trimmed,
+      replyToId: replySnapshot?.id || null,
+      replyTo: replySnapshot
+        ? {
+            id: replySnapshot.id,
+            content: replySnapshot.content,
+            userId: "",
+            userName: replySnapshot.senderName,
+          }
+        : null,
+      mentionedUserIds: tagsSnapshot,
+      createdAt: new Date().toISOString(),
+      user: currentUser
+        ? {
+            id: currentUser.id,
+            name: currentUser.name,
+            username: currentUser.name.toLowerCase().replace(/\s+/g, ""),
+            role: currentUser.role || "STAFF",
+            position: currentUser.position,
+            department: currentUser.department,
+            avatarUrl: currentUser.avatarUrl,
+          }
+        : null,
+    };
+
+    // 3. Render optimistic message immediately in chat list (instant feedback)
+    setMessages((prev) => [...prev, optimisticMsg]);
+    setTimeout(() => scrollToBottom("smooth"), 20);
+
+    // 4. Send to server in background
+    setIsSubmitting(true);
     try {
       const res = await sendProjectMessageAction(
         projectId,
         trimmed,
-        replyId,
-        tagsToSend
+        replySnapshot?.id || null,
+        tagsSnapshot
       );
 
       if (res.success && res.message) {
-        setInputContent("");
-        setReplyingTo(null);
-        setMentionedUserIds([]);
-        setShowMentionDropdown(false);
-
-        // Auto-clear unread badge
-        if (unreadCount > 0) {
-          setUnreadCount(0);
-          onChatRead?.(projectId);
-        }
-
-        // Optimistically append message to local state
         const sentMsg = res.message as ProjectChatMessage;
-        setMessages((prev) => {
-          if (prev.some((m) => m.id === sentMsg.id)) return prev;
-          return [...prev, sentMsg];
-        });
+        // Seamlessly replace optimistic temporary item with real persisted DB message
+        setMessages((prev) =>
+          prev.map((m) => (m.id === tempId ? sentMsg : m))
+        );
 
         // Broadcast to Supabase Realtime channel if active
         if (channelRef.current) {
@@ -518,13 +580,20 @@ export function ProjectDiscussionThread({
             })
             .catch(() => {});
         }
-
-        setTimeout(() => scrollToBottom("smooth"), 50);
       } else {
+        // Rollback optimistic message and restore composer state on error
+        setMessages((prev) => prev.filter((m) => m.id !== tempId));
+        setInputContent(trimmed);
+        setReplyingTo(replySnapshot);
+        setMentionedUserIds(tagsSnapshot);
         setErrorMessage(res.error || "Gagal mengirim pesan.");
       }
     } catch (err: any) {
-      console.error("Failed sending message:", err);
+      // Rollback optimistic message on network error
+      setMessages((prev) => prev.filter((m) => m.id !== tempId));
+      setInputContent(trimmed);
+      setReplyingTo(replySnapshot);
+      setMentionedUserIds(tagsSnapshot);
       setErrorMessage(err.message || "Terjadi kesalahan saat mengirim pesan.");
     } finally {
       setIsSubmitting(false);
@@ -904,26 +973,19 @@ export function ProjectDiscussionThread({
             value={inputContent}
             onChange={handleInputChange}
             onKeyDown={handleKeyDown}
-            disabled={isSubmitting}
             placeholder="Tulis pesan... ketik @ untuk menyebut PIC project (Enter kirim, Shift+Enter baris baru)"
             rows={1}
-            className="flex-1 min-h-[42px] max-h-28 resize-none bg-background border border-border/70 rounded-xl px-3.5 py-2.5 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 transition-all custom-scrollbar disabled:opacity-60"
+            className="flex-1 min-h-[42px] max-h-28 resize-none bg-background border border-border/70 rounded-xl px-3.5 py-2.5 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 transition-all custom-scrollbar"
           />
           <Button
             type="button"
             onClick={handleSendMessage}
-            disabled={isSubmitting || !inputContent.trim()}
+            disabled={!inputContent.trim()}
             size="sm"
-            className="h-[42px] px-3.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl gap-1.5 transition-all shadow-sm shrink-0 disabled:opacity-50"
+            className="h-[42px] px-3.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl gap-1.5 transition-all shadow-sm shrink-0 disabled:opacity-50 cursor-pointer"
           >
-            {isSubmitting ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <>
-                <span className="hidden sm:inline text-xs font-medium">Kirim</span>
-                <Send className="h-3.5 w-3.5" />
-              </>
-            )}
+            <span className="hidden sm:inline text-xs font-medium">Kirim</span>
+            <Send className="h-3.5 w-3.5" />
           </Button>
         </div>
         <p className="text-[10px] text-muted-foreground mt-1.5 px-1 hidden sm:block">
