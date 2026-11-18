@@ -772,9 +772,53 @@ export async function markProjectChatAsReadAction(projectId: string) {
 }
 
 /**
- * Fetch all chat messages for a specific project ordered by creation time ascending,
- * including quote replies, tagged assignees list, and auto-clearing unread badge.
+ * Fast endpoint to retrieve unread mention counts per project for the logged-in user.
  */
+export async function getUnreadMentionCountsAction() {
+  const currentUser = await getCurrentUser();
+  if (!currentUser) return { success: false, counts: {} as Record<string, number> };
+
+  try {
+    const [chatReads, relevantMessages] = await Promise.all([
+      prisma.projectChatRead.findMany({
+        where: { userId: currentUser.id },
+        select: { projectId: true, lastReadAt: true },
+      }),
+      prisma.projectMessage.findMany({
+        where: {
+          userId: { not: currentUser.id },
+          OR: [
+            { mentionedUserIds: { has: currentUser.id } },
+            { replyTo: { userId: currentUser.id } },
+          ],
+        },
+        select: {
+          projectId: true,
+          createdAt: true,
+        },
+      }),
+    ]);
+
+    const readMap = new Map<string, Date>();
+    for (const r of chatReads) {
+      readMap.set(r.projectId, r.lastReadAt);
+    }
+
+    const counts: Record<string, number> = {};
+    for (const msg of relevantMessages) {
+      const lastRead = readMap.get(msg.projectId);
+      if (!lastRead || msg.createdAt > lastRead) {
+        counts[msg.projectId] = (counts[msg.projectId] || 0) + 1;
+      }
+    }
+
+    return { success: true, counts };
+  } catch (err: any) {
+    console.error("Failed to get unread mention counts:", err);
+    return { success: false, counts: {} as Record<string, number> };
+  }
+}
+
 /**
  * Fetch all chat messages for a specific project ordered by creation time ascending,
  * including quote replies, tagged assignees list, and auto-clearing unread badge.

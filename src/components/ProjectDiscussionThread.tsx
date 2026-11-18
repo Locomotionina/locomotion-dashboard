@@ -21,7 +21,10 @@ import {
   sendProjectMessageAction,
   markProjectChatAsReadAction,
 } from "@/actions/projects";
-import { getSupabaseBrowserClient } from "@/lib/supabase";
+import {
+  getSupabaseBrowserClient,
+  LOCOMOTION_PROJECT_CHAT_GLOBAL_CHANNEL,
+} from "@/lib/supabase";
 
 export interface ProjectChatMessage {
   id: string;
@@ -218,6 +221,25 @@ export function ProjectDiscussionThread({
   // Unread badge count
   const [unreadCount, setUnreadCount] = useState<number>(initialUnreadCount);
 
+  // Sync unreadCount if prop updates
+  useEffect(() => {
+    if (initialUnreadCount !== undefined && initialUnreadCount > 0) {
+      setUnreadCount(initialUnreadCount);
+    }
+  }, [initialUnreadCount]);
+
+  // Auto-clear badge timer: smoothly clear after 2.5 seconds upon viewing
+  useEffect(() => {
+    if (unreadCount > 0) {
+      const timer = setTimeout(() => {
+        setUnreadCount(0);
+        onChatRead?.(projectId);
+        markProjectChatAsReadAction(projectId).catch(() => {});
+      }, 2500);
+      return () => clearTimeout(timer);
+    }
+  }, [projectId, unreadCount, onChatRead]);
+
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -362,6 +384,18 @@ export function ProjectDiscussionThread({
                 if (prev.some((m) => m.id === incomingMsg.id)) return prev;
                 return [...prev, incomingMsg];
               });
+
+              // Instantly trigger tag badge if tagged by someone else
+              if (currentUser?.id && incomingMsg.userId !== currentUser.id) {
+                const isTagged =
+                  (Array.isArray(incomingMsg.mentionedUserIds) &&
+                    incomingMsg.mentionedUserIds.includes(currentUser.id)) ||
+                  incomingMsg.replyTo?.userId === currentUser.id;
+                if (isTagged) {
+                  setUnreadCount((prev) => prev + 1);
+                }
+              }
+
               setTimeout(() => scrollToBottom("smooth"), 80);
             }
           })
@@ -570,7 +604,7 @@ export function ProjectDiscussionThread({
           prev.map((m) => (m.id === tempId ? sentMsg : m))
         );
 
-        // Broadcast to Supabase Realtime channel if active
+        // 1. Broadcast to project-specific Supabase Realtime channel
         if (channelRef.current) {
           channelRef.current
             .send({
@@ -579,6 +613,25 @@ export function ProjectDiscussionThread({
               payload: sentMsg,
             })
             .catch(() => {});
+        }
+
+        // 2. Broadcast to global channel for instant card badges across all clients
+        const supabase = getSupabaseBrowserClient();
+        if (supabase) {
+          try {
+            const globalChannel = supabase.channel(
+              LOCOMOTION_PROJECT_CHAT_GLOBAL_CHANNEL
+            );
+            globalChannel
+              .send({
+                type: "broadcast",
+                event: "new_message",
+                payload: sentMsg,
+              })
+              .catch(() => {});
+          } catch (e) {
+            console.debug("Failed sending global chat broadcast:", e);
+          }
         }
       } else {
         // Rollback optimistic message and restore composer state on error

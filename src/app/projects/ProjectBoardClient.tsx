@@ -39,7 +39,8 @@ import {
 } from "lucide-react";
 import { formatDate, formatRelativeDays, renderTextWithLinks } from "@/lib/utils";
 import { canDeleteProject } from "@/lib/departments";
-import { deleteProjectAction } from "@/actions/projects";
+import { deleteProjectAction, getUnreadMentionCountsAction } from "@/actions/projects";
+import { getSupabaseBrowserClient, LOCOMOTION_PROJECT_CHAT_GLOBAL_CHANNEL } from "@/lib/supabase";
 import { MiniCalendarRangePicker } from "./MiniCalendarRangePicker";
 import { ProjectDiscussionThread } from "@/components/ProjectDiscussionThread";
 
@@ -201,6 +202,93 @@ export function ProjectBoardClient({
       return { ...prev, [projectId]: 0 };
     });
   }, []);
+
+  // Detail project ref to prevent stale closures in realtime events
+  const detailProjectRef = useRef<ProjectItem | null>(null);
+  useEffect(() => {
+    detailProjectRef.current = detailProject;
+  }, [detailProject]);
+
+  // 1. Supabase Realtime subscription to global project chat notifications for instant badge updates
+  useEffect(() => {
+    const supabase = getSupabaseBrowserClient();
+    if (!supabase) return;
+
+    try {
+      const channel = supabase.channel(LOCOMOTION_PROJECT_CHAT_GLOBAL_CHANNEL, {
+        config: {
+          broadcast: { self: false },
+        },
+      });
+
+      channel
+        .on("broadcast", { event: "new_message" }, (payload: any) => {
+          const msg = payload?.payload;
+          if (!msg || !currentUser?.id || msg.userId === currentUser.id) return;
+
+          const isMentioned =
+            Array.isArray(msg.mentionedUserIds) &&
+            msg.mentionedUserIds.includes(currentUser.id);
+          const isReplied =
+            msg.replyTo && msg.replyTo.userId === currentUser.id;
+
+          if (isMentioned || isReplied) {
+            // If user is not currently viewing this specific project's chat modal
+            if (detailProjectRef.current?.id !== msg.projectId) {
+              setUnreadCounts((prev) => ({
+                ...prev,
+                [msg.projectId]: (prev[msg.projectId] || 0) + 1,
+              }));
+            }
+          }
+        })
+        .subscribe();
+
+      return () => {
+        supabase.removeChannel(channel);
+      };
+    } catch (e) {
+      console.debug("[Supabase Realtime] Global chat channel skipped:", e);
+    }
+  }, [currentUser?.id]);
+
+  // 2. Periodic fast sync of unread mention counts (and on window focus)
+  useEffect(() => {
+    if (!currentUser?.id) return;
+
+    const syncCounts = async () => {
+      try {
+        const res = await getUnreadMentionCountsAction();
+        if (res.success && res.counts) {
+          setUnreadCounts((prev) => ({
+            ...prev,
+            ...res.counts,
+          }));
+        }
+      } catch (e) {
+        console.error("Failed syncing unread counts:", e);
+      }
+    };
+
+    // Immediate sync on load
+    syncCounts();
+
+    // Fast sync when window is focused
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") {
+        syncCounts();
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+
+    // Fast 5-second polling interval as reliable fallback
+    const interval = setInterval(syncCounts, 5000);
+
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibility);
+      clearInterval(interval);
+    };
+  }, [currentUser?.id]);
 
   const [search, setSearch] = useState("");
   const [selectedStatus, setSelectedStatus] = useState("ALL");
@@ -634,7 +722,6 @@ export function ProjectBoardClient({
                           onClick={(e) => {
                             e.stopPropagation();
                             setDetailProject(project);
-                            handleChatRead(project.id);
                           }}
                           className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-500/15 border border-amber-500/35 text-amber-600 dark:text-amber-400 shadow-xs animate-pulse cursor-pointer hover:bg-amber-500/25 transition-all"
                           title={`${unreadCounts[project.id] ?? project.unreadMentionCount} mention atau balasan belum dibaca`}

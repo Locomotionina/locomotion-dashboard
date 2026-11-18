@@ -1,6 +1,7 @@
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 
 export const LOCOMOTION_PRESENCE_CHANNEL = "room:management_presence";
+export const LOCOMOTION_PROJECT_CHAT_GLOBAL_CHANNEL = "locomotion:project_chat_global";
 
 let supabaseBrowserClient: SupabaseClient | null = null;
 
