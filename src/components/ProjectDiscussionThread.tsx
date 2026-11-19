@@ -218,6 +218,14 @@ export function ProjectDiscussionThread({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
+  // Auto-dismiss error alert after 5 seconds
+  useEffect(() => {
+    if (errorMessage) {
+      const timer = setTimeout(() => setErrorMessage(null), 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [errorMessage]);
+
   // Reply / Quote State
   const [replyingTo, setReplyingTo] = useState<{
     id: string;
@@ -736,8 +744,13 @@ export function ProjectDiscussionThread({
             console.debug("Failed sending global chat broadcast:", e);
           }
         }
+
+        // Revoke the blob URL ONLY on confirmed server save
+        if (imageSnapshot?.previewUrl) {
+          URL.revokeObjectURL(imageSnapshot.previewUrl);
+        }
       } else {
-        // Rollback optimistic message and restore composer state on error
+        // Rollback optimistic message and restore composer state with preview URL intact
         setMessages((prev) => prev.filter((m) => m.id !== tempId));
         setInputContent(trimmed);
         setReplyingTo(replySnapshot);
@@ -746,18 +759,17 @@ export function ProjectDiscussionThread({
         setErrorMessage(res.error || "Gagal mengirim pesan.");
       }
     } catch (err: any) {
-      // Rollback optimistic message on network error
+      // Rollback optimistic message on error and restore composer state with preview URL intact
       setMessages((prev) => prev.filter((m) => m.id !== tempId));
       setInputContent(trimmed);
       setReplyingTo(replySnapshot);
       setMentionedUserIds(tagsSnapshot);
       setAttachedImage(imageSnapshot);
-      setErrorMessage(err.message || "Terjadi kesalahan saat mengirim pesan.");
+      setErrorMessage(
+        err.message || "Terjadi kesalahan saat mengirim pesan atau mengunggah gambar."
+      );
     } finally {
       setIsSubmitting(false);
-      if (imageSnapshot?.previewUrl) {
-        URL.revokeObjectURL(imageSnapshot.previewUrl);
-      }
     }
   };
 
@@ -911,12 +923,24 @@ export function ProjectDiscussionThread({
 
                         {/* Image Attachment Thumbnail */}
                         {msg.imageUrl && (
-                          <div className="mb-1.5 pt-0.5">
+                          <div className={cn("pt-0.5", msg.content ? "mb-1.5" : "mb-0.5")}>
                             <img
                               src={msg.imageUrl}
                               alt="Lampiran foto"
                               loading="lazy"
                               onClick={() => setLightboxImageUrl(msg.imageUrl || null)}
+                              onError={(e) => {
+                                const imgEl = e.currentTarget;
+                                imgEl.style.display = "none";
+                                const parent = imgEl.parentElement;
+                                if (parent && !parent.querySelector(".img-error-fallback")) {
+                                  const fallback = document.createElement("div");
+                                  fallback.className =
+                                    "img-error-fallback flex items-center gap-1.5 py-1 px-2 rounded bg-black/20 text-[11px] text-white/80 italic";
+                                  fallback.innerHTML = "<span>📷 Gagal memuat gambar</span>";
+                                  parent.appendChild(fallback);
+                                }
+                              }}
                               className="max-h-60 w-auto rounded-lg object-cover cursor-pointer border border-white/20 hover:opacity-95 transition-opacity shadow-xs"
                             />
                           </div>
@@ -1002,12 +1026,24 @@ export function ProjectDiscussionThread({
 
                         {/* Image Attachment Thumbnail */}
                         {msg.imageUrl && (
-                          <div className="mb-1.5 pt-0.5">
+                          <div className={cn("pt-0.5", msg.content ? "mb-1.5" : "mb-0.5")}>
                             <img
                               src={msg.imageUrl}
                               alt="Lampiran foto"
                               loading="lazy"
                               onClick={() => setLightboxImageUrl(msg.imageUrl || null)}
+                              onError={(e) => {
+                                const imgEl = e.currentTarget;
+                                imgEl.style.display = "none";
+                                const parent = imgEl.parentElement;
+                                if (parent && !parent.querySelector(".img-error-fallback")) {
+                                  const fallback = document.createElement("div");
+                                  fallback.className =
+                                    "img-error-fallback flex items-center gap-1.5 py-1 px-2 rounded bg-secondary text-[11px] text-muted-foreground italic";
+                                  fallback.innerHTML = "<span>📷 Gagal memuat gambar</span>";
+                                  parent.appendChild(fallback);
+                                }
+                              }}
                               className="max-h-60 w-auto rounded-lg object-cover cursor-pointer border border-black/10 hover:opacity-95 transition-opacity shadow-xs"
                             />
                           </div>
@@ -1046,9 +1082,19 @@ export function ProjectDiscussionThread({
 
       {/* Error alert if send failed */}
       {errorMessage && (
-        <div className="px-3.5 py-1.5 bg-rose-500/10 border-t border-rose-500/20 text-rose-600 dark:text-rose-400 text-[11px] flex items-center gap-1.5">
-          <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-          <span>{errorMessage}</span>
+        <div className="px-3.5 py-1.5 bg-rose-500/10 border-t border-rose-500/20 text-rose-600 dark:text-rose-400 text-[11px] flex items-center justify-between gap-1.5 shrink-0 animate-in fade-in">
+          <div className="flex items-center gap-1.5 min-w-0">
+            <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+            <span className="truncate">{errorMessage}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setErrorMessage(null)}
+            className="text-rose-500 hover:text-rose-700 p-0.5 rounded cursor-pointer shrink-0"
+            title="Tutup pesan error"
+          >
+            <X className="h-3 w-3" />
+          </button>
         </div>
       )}
 

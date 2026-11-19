@@ -287,3 +287,14 @@ model TaskChatRead {
   @@index([taskId])
   @@map("task_chat_reads")
 }
+
+model ChatFile {
+  id        String   @id @default(uuid())
+  fileName  String   @map("file_name")
+  mimeType  String   @map("mime_type")
+  fileSize  Int      @map("file_size")
+  data      Bytes
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("chat_files")
+}
