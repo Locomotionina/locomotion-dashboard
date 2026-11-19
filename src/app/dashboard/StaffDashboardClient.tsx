@@ -87,7 +87,10 @@ import {
   FileSpreadsheet,
   Download,
   Eye,
+  AtSign,
 } from "lucide-react";
+import { TaskReviewModal } from "@/components/TaskReviewModal";
+import { getTasksUnreadMentionsAction } from "@/actions/task-reviews";
 import { formatDate, formatRelativeDays, renderTextWithLinks } from "@/lib/utils";
 import { StaffReportModal } from "@/components/StaffReportModal";
 import { TaskTimerPill } from "@/components/TaskTimerPill";
@@ -136,6 +139,7 @@ interface TaskItem {
   createdById?: string | null;
   reviewerId?: string | null;
   reviewerIds?: string | null;
+  deliverableLink?: string | null;
   previewDescription?: string | null;
   project: {
     id: string;
@@ -186,6 +190,7 @@ export interface ReviewRequestItem {
   updatedAt: Date | string;
   reviewerId?: string | null;
   reviewerIds?: string | null;
+  deliverableLink?: string | null;
   previewDescription?: string | null;
   user: {
     id: string;
@@ -243,6 +248,7 @@ interface DelegatedTaskItem {
   updatedAt: Date;
   reviewerId?: string | null;
   reviewerIds?: string | null;
+  deliverableLink?: string | null;
   previewDescription?: string | null;
   user: {
     id: string;
@@ -535,6 +541,11 @@ export function StaffDashboardClient({
   // Create Task Reviewers State
   const [createReviewerIds, setCreateReviewerIds] = useState<string[]>([]);
 
+  // Unified 2-Column Review Tugas Modal State
+  const [reviewModalOpen, setReviewModalOpen] = useState(false);
+  const [reviewModalTaskId, setReviewModalTaskId] = useState<string | null>(null);
+  const [taskUnreadMentions, setTaskUnreadMentions] = useState<Record<string, number>>({});
+
   // Request Preview Modal State
   const [previewModalOpen, setPreviewModalOpen] = useState(false);
   const [previewModalTask, setPreviewModalTask] = useState<TaskItem | null>(null);
@@ -613,8 +624,48 @@ export function StaffDashboardClient({
           setHighlightedTaskId((prev) => (prev === targetTaskId ? null : prev));
         }, 5000);
       }
+
+      const reviewTaskId = params.get("reviewTaskId");
+      if (reviewTaskId) {
+        setReviewModalTaskId(reviewTaskId);
+        setReviewModalOpen(true);
+      }
     }
   }, [tasks, reviewRequests, delegatedTasks, allTasks, archivedTasks, isAdminOrPM]);
+
+  // Aggregate all task IDs visible on the dashboard to fetch unread @mentions in real-time
+  const allDashboardTaskIds = useMemo(() => {
+    const ids = new Set<string>();
+    tasks.forEach((t) => ids.add(t.id));
+    reviewRequests.forEach((t) => ids.add(t.id));
+    delegatedTasks.forEach((t) => ids.add(t.id));
+    allTasks.forEach((t) => ids.add(t.id));
+    return Array.from(ids);
+  }, [tasks, reviewRequests, delegatedTasks, allTasks]);
+
+  const fetchTaskUnreadMentions = useCallback(async () => {
+    if (allDashboardTaskIds.length === 0) return;
+    try {
+      const res = await getTasksUnreadMentionsAction(allDashboardTaskIds);
+      if (res.success && res.unreadCounts) {
+        setTaskUnreadMentions(res.unreadCounts);
+      }
+    } catch (err) {
+      console.debug("Error fetching task unread mentions:", err);
+    }
+  }, [allDashboardTaskIds]);
+
+  useEffect(() => {
+    fetchTaskUnreadMentions();
+    const interval = setInterval(fetchTaskUnreadMentions, 8000);
+    return () => clearInterval(interval);
+  }, [fetchTaskUnreadMentions]);
+
+  const handleOpenReviewModal = (task: { id: string }) => {
+    setReviewModalTaskId(task.id);
+    setReviewModalOpen(true);
+    setTaskUnreadMentions((prev) => ({ ...prev, [task.id]: 0 }));
+  };
 
   useEffect(() => {
     if (editTask) {
@@ -2898,6 +2949,12 @@ export function StaffDashboardClient({
                           <div className="flex items-center gap-1.5 flex-wrap">
                             {getStatusBadge(task.status, task.currentRevisionRound)}
                             {getPriorityBadge(task.priority)}
+                            {taskUnreadMentions[task.id] > 0 && (
+                              <Badge className="bg-rose-500 hover:bg-rose-600 text-white animate-pulse text-[10px] font-bold gap-1 px-2 py-0.5 shadow-sm border-0 shrink-0">
+                                <AtSign className="h-3 w-3" />
+                                <span>Kamu di-tag ({taskUnreadMentions[task.id]})</span>
+                              </Badge>
+                            )}
                             {task.taskOutputType && (
                               <span
                                 className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-700 dark:text-blue-300 border border-blue-500/25 shrink-0"
@@ -3259,42 +3316,33 @@ export function StaffDashboardClient({
                               </Button>
                             )}
 
-                            {isSelfAssigned ? (
-                              <>
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  disabled={isLoading}
-                                  onClick={() => handleOpenRequestPreview(task)}
-                                  className="shrink-0 whitespace-nowrap min-w-fit gap-1.5 rounded-xl border-purple-500/40 text-purple-700 dark:text-purple-300 hover:bg-purple-500/10 font-semibold text-xs shadow-sm h-8 px-3"
-                                  title="Ajukan preview ke rekan tim sebelum selesai"
-                                >
-                                  <Eye className="h-3.5 w-3.5 text-purple-600 dark:text-purple-400" />
-                                  <span>Request Preview</span>
-                                </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              disabled={isLoading}
+                              onClick={() => handleOpenReviewModal(task)}
+                              className="shrink-0 whitespace-nowrap min-w-fit gap-1.5 rounded-xl border-purple-500/40 text-purple-700 dark:text-purple-300 hover:bg-purple-500/10 font-semibold text-xs shadow-sm h-8 px-3 relative"
+                              title="Buka panel Review Tugas & chat"
+                            >
+                              <Eye className="h-3.5 w-3.5 text-purple-600 dark:text-purple-400" />
+                              <span>Review Tugas</span>
+                              {taskUnreadMentions[task.id] > 0 && (
+                                <span className="ml-1 px-1.5 py-0.2 rounded-full bg-rose-500 text-white text-[10px] font-bold animate-pulse">
+                                  @{taskUnreadMentions[task.id]}
+                                </span>
+                              )}
+                            </Button>
 
-                                <Button
-                                  size="sm"
-                                  disabled={isLoading}
-                                  onClick={() => handleDoneTask(task.id)}
-                                  className="shrink-0 whitespace-nowrap min-w-fit gap-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 dark:bg-emerald-500 dark:hover:bg-emerald-600 text-white font-semibold text-xs shadow-sm h-8 px-3.5 border-0"
-                                  title="Tandai langsung Selesai (Done)"
-                                >
-                                  {isLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
-                                  <span>Done</span>
-                                </Button>
-                              </>
-                            ) : (
-                              <Button
-                                size="sm"
-                                disabled={isLoading}
-                                onClick={() => handleOpenDeliverModal(task)}
-                                className="shrink-0 whitespace-nowrap min-w-fit gap-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 text-white font-semibold text-xs shadow-sm h-8 px-3.5 border-0"
-                              >
-                                {isLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Rocket className="h-3.5 w-3.5" />}
-                                <span>Deliver</span>
-                              </Button>
-                            )}
+                            <Button
+                              size="sm"
+                              disabled={isLoading}
+                              onClick={() => handleDoneTask(task.id)}
+                              className="shrink-0 whitespace-nowrap min-w-fit gap-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 dark:bg-emerald-500 dark:hover:bg-emerald-600 text-white font-semibold text-xs shadow-sm h-8 px-3.5 border-0"
+                              title="Tandai langsung Selesai (Done)"
+                            >
+                              {isLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                              <span>Done</span>
+                            </Button>
                           </div>
                         )}
 
@@ -3325,55 +3373,65 @@ export function StaffDashboardClient({
                               </Button>
                             )}
 
-                            {isSelfAssigned ? (
-                              <>
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  disabled={isLoading}
-                                  onClick={() => handleOpenRequestPreview(task)}
-                                  className="shrink-0 whitespace-nowrap min-w-fit gap-1.5 rounded-xl border-purple-500/40 text-purple-700 dark:text-purple-300 hover:bg-purple-500/10 font-semibold text-xs shadow-sm h-8 px-3"
-                                  title="Ajukan preview hasil revisi ke reviewer"
-                                >
-                                  <Eye className="h-3.5 w-3.5 text-purple-600 dark:text-purple-400" />
-                                  <span>Request Preview</span>
-                                </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              disabled={isLoading}
+                              onClick={() => handleOpenReviewModal(task)}
+                              className="shrink-0 whitespace-nowrap min-w-fit gap-1.5 rounded-xl border-purple-500/40 text-purple-700 dark:text-purple-300 hover:bg-purple-500/10 font-semibold text-xs shadow-sm h-8 px-3 relative"
+                              title="Buka panel Review Tugas & chat"
+                            >
+                              <Eye className="h-3.5 w-3.5 text-purple-600 dark:text-purple-400" />
+                              <span>Review Tugas</span>
+                              {taskUnreadMentions[task.id] > 0 && (
+                                <span className="ml-1 px-1.5 py-0.2 rounded-full bg-rose-500 text-white text-[10px] font-bold animate-pulse">
+                                  @{taskUnreadMentions[task.id]}
+                                </span>
+                              )}
+                            </Button>
 
-                                <Button
-                                  size="sm"
-                                  disabled={isLoading}
-                                  onClick={() => handleDoneTask(task.id)}
-                                  className="shrink-0 whitespace-nowrap min-w-fit gap-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 dark:bg-emerald-500 dark:hover:bg-emerald-600 text-white font-semibold text-xs shadow-sm h-8 px-3.5 border-0"
-                                  title="Tandai revisi selesai dan selesaikan task"
-                                >
-                                  {isLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
-                                  <span>Done</span>
-                                </Button>
-                              </>
-                            ) : (
-                              <Button
-                                size="sm"
-                                disabled={isLoading}
-                                onClick={() => handleOpenDeliverModal(task)}
-                                className="shrink-0 whitespace-nowrap min-w-fit gap-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 text-white font-semibold text-xs shadow-sm h-8 px-3.5 border-0"
-                              >
-                                {isLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Rocket className="h-3.5 w-3.5" />}
-                                <span>Deliver Revisi</span>
-                              </Button>
-                            )}
+                            <Button
+                              size="sm"
+                              disabled={isLoading}
+                              onClick={() => handleDoneTask(task.id)}
+                              className="shrink-0 whitespace-nowrap min-w-fit gap-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 dark:bg-emerald-500 dark:hover:bg-emerald-600 text-white font-semibold text-xs shadow-sm h-8 px-3.5 border-0"
+                              title="Tandai revisi selesai dan selesaikan task"
+                            >
+                              {isLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                              <span>Done</span>
+                            </Button>
                           </div>
                         )}
 
                         {/* State 4: In Review */}
                         {task.status === "In Review" && (
                           <div className="flex items-center justify-between gap-2 flex-wrap w-full min-w-0 pt-1">
-                            <div className="flex items-center gap-1.5 text-xs font-semibold text-purple-700 dark:text-purple-300 bg-purple-500/10 px-3 py-1.5 rounded-xl border border-purple-500/20 min-w-0 max-w-full">
-                              <Eye className="h-3.5 w-3.5 shrink-0" />
-                              <span className="truncate">
-                                {isSelfAssigned && task.reviewer
-                                  ? `Reviewer: ${task.reviewer.name}`
-                                  : "Menunggu Review"}
-                              </span>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <div className="flex items-center gap-1.5 text-xs font-semibold text-purple-700 dark:text-purple-300 bg-purple-500/10 px-3 py-1.5 rounded-xl border border-purple-500/20 min-w-0 max-w-full">
+                                <Eye className="h-3.5 w-3.5 shrink-0" />
+                                <span className="truncate">
+                                  {isSelfAssigned && task.reviewer
+                                    ? `Reviewer: ${task.reviewer.name}`
+                                    : "Menunggu Review"}
+                                </span>
+                              </div>
+
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                disabled={isLoading}
+                                onClick={() => handleOpenReviewModal(task)}
+                                className="shrink-0 whitespace-nowrap min-w-fit gap-1.5 rounded-xl border-purple-500/40 text-purple-700 dark:text-purple-300 hover:bg-purple-500/10 font-semibold text-xs shadow-sm h-8 px-3 relative"
+                                title="Buka panel Review Tugas & chat"
+                              >
+                                <Eye className="h-3.5 w-3.5 text-purple-600 dark:text-purple-400" />
+                                <span>Review Tugas</span>
+                                {taskUnreadMentions[task.id] > 0 && (
+                                  <span className="ml-1 px-1.5 py-0.2 rounded-full bg-rose-500 text-white text-[10px] font-bold animate-pulse">
+                                    @{taskUnreadMentions[task.id]}
+                                  </span>
+                                )}
+                              </Button>
                             </div>
 
                             {/* "Mulai Revisi" (Pull-Back) action button for assigned specialist */}
@@ -3494,6 +3552,12 @@ export function StaffDashboardClient({
                           <div className="flex items-center gap-1.5 flex-wrap">
                             {getStatusBadge(task.status, task.currentRevisionRound)}
                             {getPriorityBadge(task.priority)}
+                            {taskUnreadMentions[task.id] > 0 && (
+                              <Badge className="bg-rose-500 hover:bg-rose-600 text-white animate-pulse text-[10px] font-bold gap-1 px-2 py-0.5 shadow-sm border-0 shrink-0">
+                                <AtSign className="h-3 w-3" />
+                                <span>Kamu di-tag ({taskUnreadMentions[task.id]})</span>
+                              </Badge>
+                            )}
                             {task.taskOutputType && (
                               <span
                                 className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-700 dark:text-blue-300 border border-blue-500/25 shrink-0"
@@ -3774,7 +3838,7 @@ export function StaffDashboardClient({
                                 <span className="text-[10px] uppercase font-mono">Perlu Review</span>
                               </div>
 
-                              {/* 2 Decision Buttons: Approve & Selesai vs Minta Revisi */}
+                              {/* Decision Buttons: Approve & Selesai vs Review Tugas */}
                               <div className="flex items-center gap-2 flex-wrap">
                                 <Button
                                   size="sm"
@@ -3791,41 +3855,19 @@ export function StaffDashboardClient({
                                   size="sm"
                                   variant="outline"
                                   disabled={isLoading}
-                                  onClick={() => setOpenRevisionFormId(showRevisionForm ? null : task.id)}
-                                  className="flex-1 min-w-[140px] shrink-0 whitespace-nowrap gap-1.5 rounded-xl border-rose-500/40 text-rose-600 dark:text-rose-400 hover:bg-rose-500/10 font-semibold text-xs h-9 px-3"
-                                  title="Tolak preview dan minta revisi dengan catatan"
+                                  onClick={() => handleOpenReviewModal(task)}
+                                  className="flex-1 min-w-[140px] shrink-0 whitespace-nowrap gap-1.5 rounded-xl border-purple-500/40 text-purple-700 dark:text-purple-300 hover:bg-purple-500/10 font-semibold text-xs h-9 px-3 relative"
+                                  title="Buka panel Review Tugas, periksa link deliverable, atau diskusikan di chat"
                                 >
-                                  <MessageSquare className="h-3.5 w-3.5" />
-                                  <span>{showRevisionForm ? "Tutup Form" : `Minta Revisi #${reviewTargetRound}`}</span>
+                                  <Eye className="h-3.5 w-3.5 text-purple-600 dark:text-purple-400" />
+                                  <span>Review Tugas</span>
+                                  {taskUnreadMentions[task.id] > 0 && (
+                                    <span className="ml-1 px-1.5 py-0.2 rounded-full bg-rose-500 text-white text-[10px] font-bold animate-pulse">
+                                      @{taskUnreadMentions[task.id]}
+                                    </span>
+                                  )}
                                 </Button>
                               </div>
-
-                              {/* KOLOM REVISI (Form Input Catatan Revisi) */}
-                              {showRevisionForm && (
-                                <div className="pt-2 border-t border-purple-500/20 space-y-2 animate-fade-up">
-                                  <Label htmlFor={`feedback-${task.id}`} className="text-xs font-bold text-foreground flex items-center gap-1.5">
-                                    <AlertTriangle className="h-3.5 w-3.5 text-rose-500" />
-                                    <span>Catatan Revisi #{reviewTargetRound} untuk {task.user.name}:</span>
-                                  </Label>
-                                  <Textarea
-                                    id={`feedback-${task.id}`}
-                                    placeholder="Tuliskan poin-poin yang perlu direvisi/disesuaikan oleh pembuat task..."
-                                    rows={2}
-                                    value={revisionInputs[task.id] || ""}
-                                    onChange={(e) => setRevisionInputs({ ...revisionInputs, [task.id]: e.target.value })}
-                                    className="rounded-xl text-xs bg-card"
-                                  />
-                                  <Button
-                                    size="sm"
-                                    disabled={isLoading || !revisionInputs[task.id]?.trim()}
-                                    onClick={() => handleRequestRevision(task.id)}
-                                    className="w-full gap-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-semibold text-xs shadow-sm"
-                                  >
-                                    {isLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
-                                    <span>Kirim Revisi ke {task.user.name}</span>
-                                  </Button>
-                                </div>
-                              )}
                             </div>
                           );
                         })()}
@@ -4001,6 +4043,12 @@ export function StaffDashboardClient({
                           <div className="flex items-center gap-1.5 flex-wrap">
                             {getStatusBadge(task.status, task.currentRevisionRound)}
                             {getPriorityBadge(task.priority)}
+                            {taskUnreadMentions[task.id] > 0 && (
+                              <Badge className="bg-rose-500 hover:bg-rose-600 text-white animate-pulse text-[10px] font-bold gap-1 px-2 py-0.5 shadow-sm border-0 shrink-0">
+                                <AtSign className="h-3 w-3" />
+                                <span>Kamu di-tag ({taskUnreadMentions[task.id]})</span>
+                              </Badge>
+                            )}
                             {task.taskOutputType && (
                               <span
                                 className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-700 dark:text-blue-300 border border-blue-500/25 shrink-0"
@@ -4264,72 +4312,40 @@ export function StaffDashboardClient({
                           return (
                             <div className="rounded-xl border border-blue-500/30 bg-blue-500/10 p-3.5 space-y-3 animate-fade-up">
                               <div className="flex items-center justify-between text-xs font-bold text-blue-700 dark:text-blue-300">
-                                <span>🚀 Staf Telah Deliver Task!</span>
+                                <span>🚀 Menunggu Tindakan Review Delegasi</span>
                                 <span className="text-[10px] uppercase font-mono">Perlu Review</span>
                               </div>
 
-                              {task.previewDescription && (
-                                <div className="rounded-xl border border-blue-500/20 bg-card/90 p-3 text-xs space-y-1">
-                                  <span className="text-[10px] font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400 flex items-center gap-1">
-                                    <MessageSquare className="h-3 w-3" />
-                                    <span>Catatan Deliver dari Staf:</span>
-                                  </span>
-                                  <div className="text-foreground font-medium whitespace-pre-wrap break-words max-h-36 overflow-y-auto custom-scrollbar italic">
-                                    &ldquo;{renderTextWithLinks(task.previewDescription)}&rdquo;
-                                  </div>
-                                </div>
-                              )}
-
-                              {/* 2 Decision Buttons: Approve vs Minta Revisi */}
+                              {/* Decision Buttons: Approve & Selesai vs Review Tugas */}
                               <div className="flex items-center gap-2 flex-wrap">
                                 <Button
                                   size="sm"
                                   disabled={isLoading}
                                   onClick={() => handleApproveTask(task.id)}
                                   className="flex-1 min-w-[140px] shrink-0 whitespace-nowrap gap-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 text-white font-semibold text-xs shadow-sm h-9 px-3 border-0"
+                                  title="Setujui hasil kerja dan tandai task resmi selesai"
                                 >
                                   {isLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
-                                  <span>✓ Approve & Selesai</span>
+                                  <span>Approve & Selesai</span>
                                 </Button>
 
                                 <Button
                                   size="sm"
                                   variant="outline"
                                   disabled={isLoading}
-                                  onClick={() => setOpenRevisionFormId(showRevisionForm ? null : task.id)}
-                                  className="flex-1 min-w-[140px] shrink-0 whitespace-nowrap gap-1.5 rounded-xl border-rose-500/40 text-rose-600 dark:text-rose-400 hover:bg-rose-500/10 font-semibold text-xs h-9 px-3"
+                                  onClick={() => handleOpenReviewModal(task)}
+                                  className="flex-1 min-w-[140px] shrink-0 whitespace-nowrap gap-1.5 rounded-xl border-blue-500/40 text-blue-700 dark:text-blue-300 hover:bg-blue-500/10 font-semibold text-xs h-9 px-3 relative"
+                                  title="Buka panel Review Tugas, periksa link deliverable, atau diskusikan di chat"
                                 >
-                                  <MessageSquare className="h-3.5 w-3.5" />
-                                  <span>{showRevisionForm ? "Tutup Form" : `Minta Revisi #${reviewTargetRound}`}</span>
+                                  <Eye className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
+                                  <span>Review Tugas</span>
+                                  {taskUnreadMentions[task.id] > 0 && (
+                                    <span className="ml-1 px-1.5 py-0.2 rounded-full bg-rose-500 text-white text-[10px] font-bold animate-pulse">
+                                      @{taskUnreadMentions[task.id]}
+                                    </span>
+                                  )}
                                 </Button>
                               </div>
-
-                              {/* KOLOM REVISI (Form Input Catatan Revisi) */}
-                              {showRevisionForm && (
-                                <div className="pt-2 border-t border-blue-500/20 space-y-2 animate-fade-up">
-                                  <Label htmlFor={`feedback-${task.id}`} className="text-xs font-bold text-foreground flex items-center gap-1.5">
-                                    <AlertTriangle className="h-3.5 w-3.5 text-rose-500" />
-                                    <span>Kolom Catatan Revisi #{reviewTargetRound}:</span>
-                                  </Label>
-                                  <Textarea
-                                    id={`feedback-${task.id}`}
-                                    placeholder="Tuliskan poin-poin yang perlu direvisi oleh staf (misal: warna font, posisi logo, ukuran aset)..."
-                                    rows={2}
-                                    value={revisionInputs[task.id] || ""}
-                                    onChange={(e) => setRevisionInputs({ ...revisionInputs, [task.id]: e.target.value })}
-                                    className="rounded-xl text-xs bg-card"
-                                  />
-                                  <Button
-                                    size="sm"
-                                    disabled={isLoading || !revisionInputs[task.id]?.trim()}
-                                    onClick={() => handleRequestRevision(task.id)}
-                                    className="w-full gap-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-semibold text-xs shadow-sm"
-                                  >
-                                    {isLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
-                                    <span>Kirim Catatan Revisi #{reviewTargetRound} ke Staf</span>
-                                  </Button>
-                                </div>
-                              )}
                             </div>
                           );
                         })()}
@@ -4518,6 +4534,12 @@ export function StaffDashboardClient({
                             <div className="flex items-center gap-1.5 flex-wrap">
                               {getStatusBadge(task.status, task.currentRevisionRound)}
                               {getPriorityBadge(task.priority)}
+                              {taskUnreadMentions[task.id] > 0 && (
+                                <Badge className="bg-rose-500 hover:bg-rose-600 text-white animate-pulse text-[10px] font-bold gap-1 px-2 py-0.5 shadow-sm border-0 shrink-0">
+                                  <AtSign className="h-3 w-3" />
+                                  <span>Kamu di-tag ({taskUnreadMentions[task.id]})</span>
+                                </Badge>
+                              )}
                               {task.taskOutputType && (
                                 <span
                                   className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-700 dark:text-blue-300 border border-blue-500/25 shrink-0"
@@ -4731,6 +4753,22 @@ export function StaffDashboardClient({
 
                         {/* PM Actions */}
                         <div className="flex items-center gap-1.5 self-end sm:self-auto">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleOpenReviewModal(task)}
+                            className="h-8 text-xs font-semibold px-2.5 rounded-xl border-purple-500/40 text-purple-700 dark:text-purple-300 hover:bg-purple-500/10 gap-1 relative"
+                            title="Buka panel Review Tugas"
+                          >
+                            <Eye className="h-3.5 w-3.5" />
+                            <span>Review Tugas</span>
+                            {taskUnreadMentions[task.id] > 0 && (
+                              <span className="ml-1 px-1.5 py-0.2 rounded-full bg-rose-500 text-white text-[10px] font-bold animate-pulse">
+                                @{taskUnreadMentions[task.id]}
+                              </span>
+                            )}
+                          </Button>
+
                           {isReviewPhase && (
                             <Button
                               size="sm"
@@ -5561,206 +5599,23 @@ export function StaffDashboardClient({
         </Dialog>
       )}
 
-      {/* REQUEST PREVIEW MODAL */}
-      <Dialog open={previewModalOpen} onOpenChange={setPreviewModalOpen}>
-        <DialogContent className="sm:max-w-[480px] rounded-2xl border-border bg-card/95 backdrop-blur-md">
-          <DialogHeader>
-            <div className="flex items-center gap-2.5">
-              <div className="h-9 w-9 rounded-xl bg-purple-500/15 text-purple-600 dark:text-purple-400 flex items-center justify-center shrink-0">
-                <Eye className="h-5 w-5" />
-              </div>
-              <div>
-                <DialogTitle className="text-base font-bold text-foreground">
-                  Request Preview
-                </DialogTitle>
-                <DialogDescription className="text-xs text-muted-foreground">
-                  Pilih rekan tim (Target User) untuk me-review hasil kerja Anda sebelum task ditandai selesai.
-                </DialogDescription>
-              </div>
-            </div>
-          </DialogHeader>
-
-          {previewModalTask && (
-            <form onSubmit={handleSubmitRequestPreview} className="space-y-4 pt-2">
-              {/* Task Summary Banner */}
-              <div className="p-3 rounded-xl bg-secondary/60 border border-border/50 text-xs space-y-1">
-                <span className="text-[10px] uppercase font-bold text-muted-foreground">Tugas yang Diajukan:</span>
-                <p className="font-semibold text-foreground text-sm line-clamp-1">{previewModalTask.title}</p>
-                {previewModalTask.project && (
-                  <p className="text-[11px] text-muted-foreground">
-                    Proyek: {previewModalTask.project.code} • {previewModalTask.project.name}
-                  </p>
-                )}
-              </div>
-
-              {/* Field 1: User selection dropdown to assign "Target Users" (the reviewers) */}
-              <div className="space-y-1.5">
-                <Label className="text-xs font-bold text-foreground flex items-center justify-between">
-                  <span className="flex items-center gap-1">
-                    <span>Target Users (Reviewers)</span>
-                    <span className="text-rose-500">*</span>
-                  </span>
-                  <span className="text-[10px] text-purple-600 dark:text-purple-400 font-normal">
-                    Multi-select paralel review
-                  </span>
-                </Label>
-                <MultiSelectReviewers
-                  options={reviewerOptions}
-                  selectedIds={previewTargetUserIds}
-                  onChange={setPreviewTargetUserIds}
-                  excludeUserId={previewModalTask.userId}
-                  placeholder="Pilih satu atau beberapa reviewer (cth: Head Creative, Art Director, CEO)..."
-                />
-                <p className="text-[10px] text-muted-foreground">
-                  Permintaan review ini akan diteruskan langsung ke dashboard setiap Reviewer yang dipilih secara paralel.
-                </p>
-              </div>
-
-              {/* Field 2: Text area for the "Request Description" */}
-              <div className="space-y-1.5">
-                <Label htmlFor="previewDescription" className="text-xs font-bold text-foreground flex items-center justify-between">
-                  <span>Request Description</span>
-                  <span className="text-[10px] text-muted-foreground font-normal">Catatan instruksi untuk reviewer</span>
-                </Label>
-                <Textarea
-                  id="previewDescription"
-                  value={previewDescription}
-                  onChange={(e) => setPreviewDescription(e.target.value)}
-                  placeholder="Tuliskan deskripsi atau hal khusus yang perlu direview (misal: link preview draft, cek komposisi layout, cek copy teks)..."
-                  rows={3}
-                  className="rounded-xl text-xs bg-card"
-                />
-              </div>
-
-              <DialogFooter className="gap-2 pt-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => setPreviewModalOpen(false)}
-                  disabled={previewSubmitting}
-                  className="rounded-xl text-xs"
-                >
-                  Batal
-                </Button>
-                <Button
-                  type="submit"
-                  disabled={previewSubmitting || previewTargetUserIds.length === 0}
-                  className="gap-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-semibold text-xs border-0 shadow-sm"
-                >
-                  {previewSubmitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
-                  <span>Kirim Request Preview{previewTargetUserIds.length > 0 ? ` (${previewTargetUserIds.length})` : ""}</span>
-                </Button>
-              </DialogFooter>
-            </form>
-          )}
-        </DialogContent>
-      </Dialog>
-
-      {/* Modal Deliver Task Delegasi dengan Request Description */}
-      <Dialog open={deliverModalOpen} onOpenChange={setDeliverModalOpen}>
-        <DialogContent className="sm:max-w-md rounded-2xl border-border bg-card p-6 shadow-2xl">
-          <DialogHeader>
-            <div className="flex items-center gap-2.5">
-              <div className="h-9 w-9 rounded-xl bg-blue-500/15 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0">
-                <Rocket className="h-5 w-5" />
-              </div>
-              <div>
-                <DialogTitle className="text-base font-bold text-foreground">
-                  Deliver Task
-                </DialogTitle>
-                <DialogDescription className="text-xs text-muted-foreground">
-                  Kirimkan hasil pengerjaan kepada pembuat task untuk di-review beserta catatan deliverable.
-                </DialogDescription>
-              </div>
-            </div>
-          </DialogHeader>
-
-          {deliverModalTask && (
-            <form onSubmit={handleSubmitDeliver} className="space-y-4 pt-2">
-              {/* Task Summary Banner */}
-              <div className="p-3 rounded-xl bg-secondary/60 border border-border/50 text-xs space-y-1">
-                <span className="text-[10px] uppercase font-bold text-muted-foreground">Tugas yang di-Deliver:</span>
-                <p className="font-semibold text-foreground text-sm line-clamp-1">{deliverModalTask.title}</p>
-                {deliverModalTask.project && (
-                  <p className="text-[11px] text-muted-foreground">
-                    Proyek: {deliverModalTask.project.code} • {deliverModalTask.project.name}
-                  </p>
-                )}
-                {deliverModalTask.createdBy && (
-                  <p className="text-[11px] text-blue-600 dark:text-blue-400 font-medium">
-                    Pemberi Tugas: {deliverModalTask.createdBy.name} ({deliverModalTask.createdBy.department})
-                  </p>
-                )}
-              </div>
-
-              {/* Field: Deliver To Reviewers (Multi-Select) */}
-              <div className="space-y-1.5">
-                <Label className="text-xs font-bold text-foreground flex items-center justify-between">
-                  <span>Deliver To (Reviewers)</span>
-                  <span className="text-[10px] text-blue-600 dark:text-blue-400 font-normal">
-                    Pilih reviewer untuk verifikasi paralel
-                  </span>
-                </Label>
-                <MultiSelectReviewers
-                  options={reviewerOptions}
-                  selectedIds={deliverTargetUserIds}
-                  onChange={setDeliverTargetUserIds}
-                  excludeUserId={deliverModalTask.userId}
-                  placeholder="Pilih reviewer (cth: Head Creative, Art Director, CEO)..."
-                />
-                <p className="text-[10px] text-muted-foreground">
-                  {deliverTargetUserIds.length === 0 && deliverModalTask.createdBy
-                    ? `Default dikirim ke pembuat task: ${deliverModalTask.createdBy.name}`
-                    : `Deliverable akan dikirimkan ke ${deliverTargetUserIds.length} reviewer secara paralel.`}
-                </p>
-              </div>
-
-              {/* Field: Request Description / Catatan Hasil Kerja */}
-              <div className="space-y-1.5">
-                <Label htmlFor="deliverDescription" className="text-xs font-bold text-foreground flex items-center justify-between">
-                  <span className="flex items-center gap-1">
-                    <span>Request Description</span>
-                    <span className="text-rose-500">*</span>
-                  </span>
-                  <span className="text-[10px] text-rose-500 font-medium">Wajib diisi</span>
-                </Label>
-                <Textarea
-                  id="deliverDescription"
-                  required
-                  value={deliverDescription}
-                  onChange={(e) => setDeliverDescription(e.target.value)}
-                  placeholder="Tuliskan deskripsi hasil kerja, link preview/dokumen deliverable, atau catatan penting untuk pembuat task..."
-                  rows={4}
-                  className="rounded-xl text-xs bg-card"
-                />
-                <p className="text-[10px] text-muted-foreground">
-                  Catatan ini akan dikirimkan kepada pembuat task untuk ditinjau saat proses review.
-                </p>
-              </div>
-
-              <DialogFooter className="gap-2 pt-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => setDeliverModalOpen(false)}
-                  disabled={deliverSubmitting}
-                  className="rounded-xl text-xs"
-                >
-                  Batal
-                </Button>
-                <Button
-                  type="submit"
-                  disabled={deliverSubmitting || !deliverDescription.trim()}
-                  className="gap-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs border-0 shadow-sm"
-                >
-                  {deliverSubmitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Rocket className="h-3.5 w-3.5" />}
-                  <span>Kirim & Deliver</span>
-                </Button>
-              </DialogFooter>
-            </form>
-          )}
-        </DialogContent>
-      </Dialog>
+      {/* 2-COLUMN TASK REVIEW MODAL */}
+      <TaskReviewModal
+        taskId={reviewModalTaskId}
+        isOpen={reviewModalOpen}
+        onClose={() => setReviewModalOpen(false)}
+        currentUser={user}
+        availableUsers={staffMembers}
+        onTaskUpdated={(updatedTask) => {
+          if (!updatedTask?.id) return;
+          const applyUpdate = (t: any) =>
+            t.id === updatedTask.id ? { ...t, ...updatedTask } : t;
+          setTasks((prev) => prev.map(applyUpdate));
+          setReviewRequests((prev) => prev.map(applyUpdate));
+          setDelegatedTasks((prev) => prev.map(applyUpdate));
+          setAllTasks((prev) => prev.map(applyUpdate));
+        }}
+      />
 
       {/* Toast Notification Container */}
       {toast && (

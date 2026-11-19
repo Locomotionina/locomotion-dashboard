@@ -32,6 +32,8 @@ model User {
   passwordRequests   PasswordResetRequest[]
   projectMessages    ProjectMessage[]
   projectChatReads   ProjectChatRead[]
+  taskMessages       TaskMessage[]
+  taskChatReads      TaskChatRead[]
   createdAt          DateTime @default(now())
   updatedAt      DateTime @updatedAt
 }
@@ -109,6 +111,9 @@ model Task {
   currentPhase         String         @default("INITIAL") // "INITIAL", "REVISION"
   currentRevisionRound Int            @default(0)
   revisions            TaskRevision[]
+  deliverableLink      String?        @map("deliverable_link")
+  taskMessages         TaskMessage[]
+  taskChatReads        TaskChatRead[]
 
   createdAt            DateTime       @default(now())
   updatedAt            DateTime       @updatedAt
@@ -247,4 +252,36 @@ model ProjectChatRead {
   @@index([userId])
   @@index([projectId])
   @@map("project_chat_reads")
+}
+
+model TaskMessage {
+  id               String           @id @default(uuid())
+  taskId           String           @map("task_id")
+  task             Task             @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  userId           String           @map("user_id")
+  user             User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  content          String
+  replyToId        String?          @map("reply_to_id")
+  replyTo          TaskMessage?     @relation("TaskMessageReplies", fields: [replyToId], references: [id], onDelete: SetNull)
+  replies          TaskMessage[]    @relation("TaskMessageReplies")
+  mentionedUserIds String[]         @default([]) @map("mentioned_user_ids")
+  createdAt        DateTime         @default(now()) @map("created_at")
+
+  @@index([taskId])
+  @@index([userId])
+  @@index([replyToId])
+  @@map("task_messages")
+}
+
+model TaskChatRead {
+  userId     String   @map("user_id")
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  taskId     String   @map("task_id")
+  task       Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  lastReadAt DateTime @default(now()) @map("last_read_at")
+
+  @@id([userId, taskId])
+  @@index([userId])
+  @@index([taskId])
+  @@map("task_chat_reads")
 }

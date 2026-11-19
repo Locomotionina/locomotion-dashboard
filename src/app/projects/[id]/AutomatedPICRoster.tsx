@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
+import Link from "next/link";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -717,7 +718,7 @@ export function AutomatedPICRoster({ pics, tasks }: AutomatedPICRosterProps) {
                 </div>
               </div>
 
-              <DialogFooter className="pt-2 border-t border-border/50">
+              <DialogFooter className="pt-2 border-t border-border/50 flex items-center justify-between gap-2">
                 <Button
                   type="button"
                   variant="outline"
@@ -727,6 +728,15 @@ export function AutomatedPICRoster({ pics, tasks }: AutomatedPICRosterProps) {
                 >
                   Tutup
                 </Button>
+                <Link href={`/dashboard?reviewTaskId=${selectedTask.id}`}>
+                  <Button
+                    size="sm"
+                    className="gap-1.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-semibold text-xs h-8 px-3.5 border-0 shadow-sm"
+                  >
+                    <Eye className="h-3.5 w-3.5" />
+                    <span>Buka Review Tugas</span>
+                  </Button>
+                </Link>
               </DialogFooter>
             </>
           )}

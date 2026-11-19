@@ -16,6 +16,8 @@ async function main() {
     "push_subscriptions",
     "project_messages",
     "project_chat_reads",
+    "task_messages",
+    "task_chat_reads",
   ];
 
   for (const table of tables) {
