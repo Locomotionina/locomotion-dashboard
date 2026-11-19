@@ -48,6 +48,21 @@ export function Navbar({ user }: NavbarProps) {
   }
 
   const handleLogout = async () => {
+    // Optionally unbind device endpoint on logout so no notifications arrive while logged out
+    if (typeof window !== "undefined" && "serviceWorker" in navigator) {
+      try {
+        const reg = await navigator.serviceWorker.ready;
+        const sub = await reg.pushManager.getSubscription();
+        if (sub) {
+          await fetch("/api/push/subscribe", {
+            method: "DELETE",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ endpoint: sub.endpoint }),
+          }).catch(() => {});
+        }
+      } catch {}
+    }
+
     await logoutAction();
     window.location.href = "/login";
   };
@@ -143,7 +158,7 @@ export function Navbar({ user }: NavbarProps) {
         <div className="flex items-center gap-1.5 sm:gap-2.5">
           <GlobalSearch />
           <ThemeToggle />
-          <PushNotificationButton />
+          <PushNotificationButton userId={user.id} />
           <NotificationBell />
 
           <DropdownMenu>
@@ -192,7 +207,7 @@ export function Navbar({ user }: NavbarProps) {
                   <span>My Profile</span>
                 </Link>
               </DropdownMenuItem>
-              <PushNotificationMenuItem />
+              <PushNotificationMenuItem userId={user.id} />
               <DropdownMenuItem
                 onClick={() => window.dispatchEvent(new CustomEvent("open-onboarding"))}
                 className="flex items-center gap-2 cursor-pointer text-blue-600 dark:text-blue-400"

@@ -28,7 +28,7 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 
-function urlBase64ToUint8Array(base64String: string): BufferSource {
+export function urlBase64ToUint8Array(base64String: string): BufferSource {
   const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
   const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
 
@@ -64,7 +64,81 @@ interface ToastState {
   type: "success" | "error" | "info";
 }
 
-export function usePushNotifications() {
+// In-memory tracker to prevent redundant background re-binding requests in the same session
+let lastSyncedKey = "";
+let isSyncing = false;
+
+/**
+ * Background auto-sync function: silently re-binds active device PushSubscription to current user
+ */
+export async function silentSyncSubscription(subscription: PushSubscription, userId?: string) {
+  const syncKey = `${userId || "active-session"}:${subscription.endpoint}`;
+  if (isSyncing || lastSyncedKey === syncKey) {
+    return;
+  }
+  isSyncing = true;
+
+  try {
+    const res = await fetch("/api/push/subscribe", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        subscription: subscription.toJSON(),
+        userAgent: typeof navigator !== "undefined" ? navigator.userAgent : null,
+        sendTestNotification: false,
+      }),
+    });
+
+    if (res.ok) {
+      lastSyncedKey = syncKey;
+    }
+  } catch (err) {
+    console.debug("[Push] Silent re-binding error:", err);
+  } finally {
+    isSyncing = false;
+  }
+}
+
+/**
+ * Headless component to automatically sync / re-bind push subscriptions on login or session load
+ */
+export function PushNotificationAutoSync({ userId }: { userId?: string }) {
+  useEffect(() => {
+    if (
+      typeof window === "undefined" ||
+      !("Notification" in window) ||
+      !("serviceWorker" in navigator)
+    ) {
+      return;
+    }
+
+    if (Notification.permission !== "granted") {
+      return;
+    }
+
+    let isMounted = true;
+
+    navigator.serviceWorker.ready
+      .then(async (reg) => {
+        if (!isMounted) return;
+        const sub = await reg.pushManager.getSubscription();
+        if (sub && isMounted) {
+          silentSyncSubscription(sub, userId);
+        }
+      })
+      .catch((err) => {
+        console.debug("[Push] Auto-sync ready error:", err);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [userId]);
+
+  return null;
+}
+
+export function usePushNotifications(userId?: string) {
   const [isSupported, setIsSupported] = useState(false);
   const [isSubscribed, setIsSubscribed] = useState(false);
   const [permission, setPermission] = useState<NotificationPermission>("default");
@@ -73,6 +147,7 @@ export function usePushNotifications() {
   const [isIos, setIsIos] = useState(false);
   const [isStandalone, setIsStandalone] = useState(false);
   const [showIosGuide, setShowIosGuide] = useState(false);
+  const [showBlockedDialog, setShowBlockedDialog] = useState(false);
   const [toast, setToast] = useState<ToastState | null>(null);
   const toastTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -84,8 +159,8 @@ export function usePushNotifications() {
     }, 5000);
   }, []);
 
-  // Register Service Worker and check initial status
-  useEffect(() => {
+  // Check the local device/browser actual push subscription state
+  const checkLocalSubscription = useCallback(async () => {
     if (typeof window === "undefined") return;
 
     const ios = checkIsIos();
@@ -97,25 +172,75 @@ export function usePushNotifications() {
       "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
     setIsSupported(supported);
 
-    if ("Notification" in window) {
-      setPermission(Notification.permission);
+    if (!supported) {
+      setIsSubscribed(false);
+      return;
     }
+
+    const currentPerm = Notification.permission;
+    setPermission(currentPerm);
+
+    if (currentPerm !== "granted") {
+      setIsSubscribed(false);
+      return;
+    }
+
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.getSubscription();
+      const active = !!sub;
+      setIsSubscribed(active);
+
+      // Silently re-bind subscription to active user session in background
+      if (active && sub) {
+        silentSyncSubscription(sub, userId);
+      }
+    } catch (err) {
+      console.warn("[Push] Error checking local push subscription:", err);
+      setIsSubscribed(false);
+    }
+  }, [userId]);
+
+  // Initial check & register service worker
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    checkLocalSubscription();
 
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker
         .register("/sw.js")
-        .then((reg) => {
-          reg.pushManager.getSubscription().then((sub) => {
-            if (sub) {
-              setIsSubscribed(true);
-            }
-          });
+        .then(() => {
+          checkLocalSubscription();
         })
         .catch((err) => {
           console.warn("[PWA] Service worker registration error:", err);
         });
     }
-  }, []);
+
+    // Listen for browser permission changes
+    if (
+      typeof navigator !== "undefined" &&
+      "permissions" in navigator &&
+      navigator.permissions.query
+    ) {
+      navigator.permissions
+        .query({ name: "notifications" as PermissionName })
+        .then((permStatus) => {
+          permStatus.onchange = () => {
+            if ("Notification" in window) {
+              setPermission(Notification.permission);
+              if (Notification.permission !== "granted") {
+                setIsSubscribed(false);
+              } else {
+                checkLocalSubscription();
+              }
+            }
+          };
+        })
+        .catch(() => {});
+    }
+  }, [checkLocalSubscription]);
 
   const subscribe = async () => {
     // Check iOS Safari outside standalone mode
@@ -136,6 +261,7 @@ export function usePushNotifications() {
       setPermission(currentPerm);
 
       if (currentPerm === "denied") {
+        setShowBlockedDialog(true);
         showToast(
           "Izin notifikasi diblokir. Harap aktifkan izin notifikasi di pengaturan browser Anda.",
           "error"
@@ -171,7 +297,8 @@ export function usePushNotifications() {
 
       // Fallback 2: Default to the generated project VAPID key
       if (!vapidPublicKey) {
-        vapidPublicKey = "BGeFi3XoBjv7MbKeJ9GED-oRxcJkEKfqggTokUIT9vWSW2bcWQ1EXOG42NbGkjbQM5HjF21yi9ro3XQYte_xXeg";
+        vapidPublicKey =
+          "BGeFi3XoBjv7MbKeJ9GED-oRxcJkEKfqggTokUIT9vWSW2bcWQ1EXOG42NbGkjbQM5HjF21yi9ro3XQYte_xXeg";
       }
 
       if (!subscription) {
@@ -181,7 +308,7 @@ export function usePushNotifications() {
         });
       }
 
-      // Save subscription to backend
+      // Save subscription to backend and request welcome test notification
       const res = await fetch("/api/push/subscribe", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -198,9 +325,10 @@ export function usePushNotifications() {
         throw new Error(data.error || "Gagal menyimpan subscription push.");
       }
 
+      lastSyncedKey = `${userId || "active-session"}:${subscription.endpoint}`;
       setIsSubscribed(true);
       showToast(
-        "Notifikasi HP berhasil diaktifkan! Notifikasi tes telah dikirim ke perangkat Anda. 🔔",
+        "Notifikasi berhasil diaktifkan! Notifikasi tes telah dikirim ke perangkat Anda. 🔔",
         "success"
       );
     } catch (err: any) {
@@ -231,8 +359,9 @@ export function usePushNotifications() {
         }
       }
 
+      lastSyncedKey = "";
       setIsSubscribed(false);
-      showToast("Notifikasi HP dinonaktifkan untuk perangkat ini.", "info");
+      showToast("Notifikasi dinonaktifkan untuk perangkat ini.", "info");
     } catch (err: any) {
       console.error("[Push] Unsubscribe error:", err);
       showToast(err.message || "Gagal menonaktifkan notifikasi.", "error");
@@ -259,7 +388,7 @@ export function usePushNotifications() {
         throw new Error(data.message || "Gagal mengirim notifikasi tes.");
       }
 
-      showToast("Notifikasi tes terkirim! Periksa banner/lockscreen HP Anda.", "success");
+      showToast("Notifikasi tes terkirim! Periksa banner/notifikasi perangkat Anda.", "success");
     } catch (err: any) {
       console.error("[Push] Test notification error:", err);
       showToast(err.message || "Gagal mengirim notifikasi tes.", "error");
@@ -278,12 +407,92 @@ export function usePushNotifications() {
     isStandalone,
     showIosGuide,
     setShowIosGuide,
+    showBlockedDialog,
+    setShowBlockedDialog,
     subscribe,
     unsubscribe,
     sendTestNotification,
     toast,
     setToast,
   };
+}
+
+export function BlockedGuideDialog({
+  isOpen,
+  onClose,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+}) {
+  return (
+    <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-w-md w-full rounded-2xl p-6 bg-card border border-border shadow-2xl">
+        <DialogHeader className="text-left">
+          <div className="flex items-center gap-2 mb-2">
+            <div className="h-9 w-9 rounded-xl bg-rose-500/10 text-rose-600 dark:text-rose-400 flex items-center justify-center border border-rose-500/20">
+              <BellOff className="h-5 w-5" />
+            </div>
+            <div>
+              <DialogTitle className="text-base font-bold text-foreground">
+                Notifikasi Diblokir oleh Browser
+              </DialogTitle>
+              <DialogDescription className="text-xs text-muted-foreground">
+                Izin notifikasi dinonaktifkan di pengaturan browser perangkat ini.
+              </DialogDescription>
+            </div>
+          </div>
+        </DialogHeader>
+
+        <div className="p-3 bg-rose-500/10 border border-rose-500/20 rounded-xl text-xs text-rose-800 dark:text-rose-300 font-medium">
+          Browser memblokir permintaan notifikasi. Untuk mengaktifkannya, ubah pengaturan izin situs pada browser Anda.
+        </div>
+
+        <div className="space-y-3 my-2 text-xs text-foreground/90">
+          <div className="flex items-start gap-3 p-3 rounded-xl bg-secondary/50 border border-border/70">
+            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-rose-600 text-white font-bold text-xs">
+              1
+            </span>
+            <div>
+              <p className="font-semibold text-foreground">Buka Setelan Situs di Address Bar</p>
+              <p className="text-muted-foreground mt-0.5 leading-relaxed">
+                Klik ikon <strong>Gembok / Setelan Situs</strong> di sebelah kiri bilah alamat URL (address bar) browser Anda.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-start gap-3 p-3 rounded-xl bg-secondary/50 border border-border/70">
+            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-rose-600 text-white font-bold text-xs">
+              2
+            </span>
+            <div>
+              <p className="font-semibold text-foreground">Ubah Izin Notifikasi Menjadi &quot;Izinkan&quot;</p>
+              <p className="text-muted-foreground mt-0.5 leading-relaxed">
+                Cari menu <strong>Notifikasi (Notifications)</strong> dan ubah dari <em>Blokir / Deny</em> menjadi <strong>Izinkan / Allow</strong>.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-start gap-3 p-3 rounded-xl bg-secondary/50 border border-border/70">
+            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-rose-600 text-white font-bold text-xs">
+              3
+            </span>
+            <div>
+              <p className="font-semibold text-foreground">Muat Ulang (Refresh) Halaman</p>
+              <p className="text-muted-foreground mt-0.5 leading-relaxed">
+                Muat ulang halaman ini agar izin baru segera diterapkan oleh sistem.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex justify-end pt-2">
+          <Button onClick={onClose} className="rounded-xl px-5 text-xs font-semibold">
+            Saya Mengerti
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
 }
 
 export function IosGuideDialog({
@@ -352,7 +561,7 @@ export function IosGuideDialog({
             <div>
               <p className="font-semibold text-foreground">Buka App Locomotion & Aktifkan</p>
               <p className="text-muted-foreground mt-0.5 leading-relaxed">
-                Buka ikon <strong>Locomotion</strong> dari Home Screen iPhone Anda, lalu klik tombol <strong>Aktifkan Notifikasi HP</strong>.
+                Buka ikon <strong>Locomotion</strong> dari Home Screen iPhone Anda, lalu klik tombol <strong>Izinkan Notifikasi</strong>.
               </p>
             </div>
           </div>
@@ -407,41 +616,63 @@ export function ToastBanner({
 }
 
 /**
- * Clean navbar push notification toggle button with status and iOS support
+ * Universal Navbar push notification button with device-agnostic states and subtle active indicator
  */
-export function PushNotificationButton() {
+export function PushNotificationButton({ userId }: { userId?: string } = {}) {
   const {
     isSubscribed,
+    permission,
     loading,
     testing,
     isIos,
     isStandalone,
     showIosGuide,
     setShowIosGuide,
+    showBlockedDialog,
+    setShowBlockedDialog,
     subscribe,
     sendTestNotification,
     toast,
     setToast,
-  } = usePushNotifications();
+  } = usePushNotifications(userId);
+
+  const isBlocked = permission === "denied";
 
   return (
     <>
       <div className="relative inline-flex items-center">
-        {isSubscribed ? (
+        {isBlocked ? (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowBlockedDialog(true)}
+            className="h-8 px-2 sm:px-2.5 rounded-xl text-xs font-medium border-rose-500/30 bg-rose-500/10 text-rose-600 dark:text-rose-400 hover:bg-rose-500/20 transition-all"
+            title="Izin notifikasi diblokir oleh browser. Klik untuk melihat panduan mengaktifkannya."
+          >
+            <BellOff className="h-3.5 w-3.5 sm:mr-1.5" />
+            <span className="hidden sm:inline">Notifikasi Diblokir</span>
+            <span className="sm:hidden">Diblokir</span>
+          </Button>
+        ) : isSubscribed ? (
           <Button
             variant="outline"
             size="sm"
             onClick={sendTestNotification}
             disabled={testing || loading}
-            className="h-8 px-2 sm:px-2.5 rounded-xl text-xs font-medium border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20"
-            title="Notifikasi HP Aktif. Klik untuk kirim notifikasi tes."
+            className="h-8 px-2 sm:px-2.5 rounded-xl text-xs font-medium border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20 transition-all"
+            title="Notifikasi Aktif di perangkat ini. Klik untuk kirim notifikasi pengujian."
           >
             {testing ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin sm:mr-1.5" />
             ) : (
-              <BellRing className="h-3.5 w-3.5 sm:mr-1.5" />
+              <span className="relative flex h-2 w-2 mr-1 sm:mr-1.5 shrink-0">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+              </span>
             )}
-            <span className="hidden sm:inline">Notif HP Aktif</span>
+            <BellRing className="h-3.5 w-3.5 sm:mr-1.5" />
+            <span className="hidden sm:inline">Notifikasi Aktif</span>
+            <span className="sm:hidden">Aktif</span>
           </Button>
         ) : (
           <Button
@@ -453,20 +684,24 @@ export function PushNotificationButton() {
             title={
               isIos && !isStandalone
                 ? "Untuk iPhone: ketuk ikon Share di Safari lalu pilih 'Add to Home Screen' terlebih dahulu untuk mengaktifkan notifikasi."
-                : "Aktifkan notifikasi push langsung di layar HP Anda"
+                : "Izinkan notifikasi push di perangkat ini"
             }
           >
             {loading ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin sm:mr-1.5" />
             ) : (
-              <Smartphone className="h-3.5 w-3.5 sm:mr-1.5" />
+              <Bell className="h-3.5 w-3.5 sm:mr-1.5" />
             )}
-            <span className="hidden sm:inline">Aktifkan Notifikasi HP</span>
-            <span className="sm:hidden">Notif HP</span>
+            <span className="hidden sm:inline">Izinkan Notifikasi</span>
+            <span className="sm:hidden">Izinkan Notif</span>
           </Button>
         )}
       </div>
 
+      <BlockedGuideDialog
+        isOpen={showBlockedDialog}
+        onClose={() => setShowBlockedDialog(false)}
+      />
       <IosGuideDialog isOpen={showIosGuide} onClose={() => setShowIosGuide(false)} />
       <ToastBanner toast={toast} onClose={() => setToast(null)} />
     </>
@@ -476,40 +711,63 @@ export function PushNotificationButton() {
 /**
  * Clean User Profile Dropdown Item for Push Notifications
  */
-export function PushNotificationMenuItem() {
+export function PushNotificationMenuItem({ userId }: { userId?: string } = {}) {
   const {
     isSubscribed,
+    permission,
     loading,
     testing,
     showIosGuide,
     setShowIosGuide,
+    showBlockedDialog,
+    setShowBlockedDialog,
     subscribe,
     sendTestNotification,
     toast,
     setToast,
-  } = usePushNotifications();
+  } = usePushNotifications(userId);
+
+  const isBlocked = permission === "denied";
+
+  const handleClick = () => {
+    if (isBlocked) {
+      setShowBlockedDialog(true);
+    } else if (isSubscribed) {
+      sendTestNotification();
+    } else {
+      subscribe();
+    }
+  };
 
   return (
     <>
       <div
         className="px-2 py-1.5 flex items-center justify-between gap-2 text-xs hover:bg-secondary/60 rounded-lg cursor-pointer transition-colors"
-        onClick={isSubscribed ? sendTestNotification : subscribe}
+        onClick={handleClick}
       >
         <div className="flex items-center gap-2 min-w-0">
-          <Smartphone className="h-4 w-4 text-blue-500 shrink-0" />
-          <span className="font-medium text-foreground truncate">Notifikasi HP</span>
+          <Bell className="h-4 w-4 text-blue-500 shrink-0" />
+          <span className="font-medium text-foreground truncate">Notifikasi</span>
         </div>
-        {isSubscribed ? (
+        {isBlocked ? (
+          <span className="text-[10px] bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20 px-2 py-0.5 rounded-full flex items-center gap-1 font-semibold shrink-0">
+            <BellOff className="h-2.5 w-2.5" />
+            Diblokir
+          </span>
+        ) : isSubscribed ? (
           <span
-            className="text-[10px] bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded-full flex items-center gap-1 font-semibold shrink-0"
+            className="text-[10px] bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded-full flex items-center gap-1.5 font-semibold shrink-0"
             title="Klik untuk tes notifikasi push"
           >
             {testing ? (
               <Loader2 className="h-2.5 w-2.5 animate-spin" />
             ) : (
-              <BellRing className="h-2.5 w-2.5" />
+              <span className="relative flex h-1.5 w-1.5 shrink-0">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500"></span>
+              </span>
             )}
-            Aktif (Tes)
+            Notifikasi Aktif
           </span>
         ) : (
           <span className="text-[10px] bg-blue-600 text-white px-2 py-0.5 rounded-full flex items-center gap-1 font-semibold shrink-0">
@@ -518,11 +776,15 @@ export function PushNotificationMenuItem() {
             ) : (
               <Bell className="h-2.5 w-2.5" />
             )}
-            Aktifkan
+            Izinkan Notifikasi
           </span>
         )}
       </div>
 
+      <BlockedGuideDialog
+        isOpen={showBlockedDialog}
+        onClose={() => setShowBlockedDialog(false)}
+      />
       <IosGuideDialog isOpen={showIosGuide} onClose={() => setShowIosGuide(false)} />
       <ToastBanner toast={toast} onClose={() => setToast(null)} />
     </>
@@ -542,6 +804,8 @@ export function PushNotificationProfileCard() {
     isStandalone,
     showIosGuide,
     setShowIosGuide,
+    showBlockedDialog,
+    setShowBlockedDialog,
     subscribe,
     unsubscribe,
     sendTestNotification,
@@ -549,33 +813,51 @@ export function PushNotificationProfileCard() {
     setToast,
   } = usePushNotifications();
 
+  const isBlocked = permission === "denied";
+
   return (
     <Card className="rounded-2xl border-border/80 shadow-sm overflow-hidden">
       <CardHeader className="pb-3 border-b border-border/50 bg-secondary/20">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <div className="h-8 w-8 rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center border border-blue-500/20">
-              <Smartphone className="h-4 w-4" />
+              <Bell className="h-4 w-4" />
             </div>
             <div>
               <CardTitle className="text-base font-bold text-foreground">
-                Notifikasi HP & Native Web Push (PWA)
+                Web Push Notifications
               </CardTitle>
               <CardDescription className="text-xs text-muted-foreground">
-                Terima pemberitahuan instan di lockscreen untuk delegasi task, preview, dan persetujuan.
+                Terima pemberitahuan instan di perangkat Anda untuk delegasi task, preview, dan persetujuan.
               </CardDescription>
             </div>
           </div>
           <Badge
-            variant={isSubscribed ? "purple" : "secondary"}
+            variant={isBlocked ? "destructive" : isSubscribed ? "purple" : "secondary"}
             className="text-xs font-semibold"
           >
-            {isSubscribed ? "Aktif di HP Ini" : "Belum Aktif"}
+            {isBlocked
+              ? "Diblokir Browser"
+              : isSubscribed
+              ? "Notifikasi Aktif"
+              : "Belum Aktif"}
           </Badge>
         </div>
       </CardHeader>
 
       <CardContent className="pt-4 space-y-4 text-xs">
+        {isBlocked && (
+          <div className="p-3 bg-rose-500/10 border border-rose-500/20 rounded-xl text-rose-800 dark:text-rose-300">
+            <p className="font-semibold flex items-center gap-1.5 mb-1">
+              <AlertCircle className="h-3.5 w-3.5 text-rose-600" />
+              Notifikasi Diblokir oleh Browser
+            </p>
+            <p className="text-[11px] leading-relaxed">
+              Izin notifikasi dinonaktifkan di pengaturan browser Anda. Untuk mengaktifkannya, klik ikon gembok atau setelan situs pada bilah alamat browser, ubah izin Notifikasi ke &quot;Izinkan&quot;, lalu muat ulang halaman.
+            </p>
+          </div>
+        )}
+
         {isIos && !isStandalone && (
           <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl text-amber-800 dark:text-amber-300">
             <p className="font-semibold flex items-center gap-1.5 mb-1">
@@ -592,7 +874,11 @@ export function PushNotificationProfileCard() {
           <div className="p-3 rounded-xl bg-secondary/40 border border-border/60">
             <p className="text-[11px] text-muted-foreground">Status Push</p>
             <p className="text-xs font-bold text-foreground mt-0.5">
-              {isSubscribed ? "Terdaftar & Aktif" : "Tidak Terdaftar"}
+              {isBlocked
+                ? "Diblokir"
+                : isSubscribed
+                ? "Aktif di Perangkat Ini"
+                : "Belum Diaktifkan"}
             </p>
           </div>
           <div className="p-3 rounded-xl bg-secondary/40 border border-border/60">
@@ -610,7 +896,16 @@ export function PushNotificationProfileCard() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2.5 pt-2">
-          {!isSubscribed ? (
+          {isBlocked ? (
+            <Button
+              onClick={() => setShowBlockedDialog(true)}
+              variant="outline"
+              className="rounded-xl px-4 text-xs font-semibold border-rose-500/30 text-rose-600 hover:bg-rose-500/10"
+            >
+              <BellOff className="h-3.5 w-3.5 mr-1.5" />
+              Notifikasi Diblokir (Panduan)
+            </Button>
+          ) : !isSubscribed ? (
             <Button
               onClick={subscribe}
               disabled={loading}
@@ -621,7 +916,7 @@ export function PushNotificationProfileCard() {
               ) : (
                 <BellRing className="h-3.5 w-3.5 mr-1.5" />
               )}
-              Aktifkan Notifikasi HP
+              Izinkan Notifikasi
             </Button>
           ) : (
             <>
@@ -662,6 +957,10 @@ export function PushNotificationProfileCard() {
         </div>
       </CardContent>
 
+      <BlockedGuideDialog
+        isOpen={showBlockedDialog}
+        onClose={() => setShowBlockedDialog(false)}
+      />
       <IosGuideDialog isOpen={showIosGuide} onClose={() => setShowIosGuide(false)} />
       <ToastBanner toast={toast} onClose={() => setToast(null)} />
     </Card>

@@ -43,7 +43,7 @@ export async function POST(req: NextRequest) {
     if (sendTestNotification) {
       await sendPushToUser(user.id, {
         title: "Locomotion Tracker 🚀",
-        body: `Notifikasi HP aktif untuk ${user.name}! Anda akan menerima update task secara real-time.`,
+        body: `Notifikasi aktif untuk ${user.name}! Anda akan menerima update task secara real-time.`,
         url: "/dashboard",
         type: "WELCOME",
       });

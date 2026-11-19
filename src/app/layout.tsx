@@ -7,6 +7,7 @@ import { Navbar } from "@/components/Navbar";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { OnboardingModal } from "@/components/OnboardingModal";
 import { PresenceTracker } from "@/components/PresenceTracker";
+import { PushNotificationAutoSync } from "@/components/PushNotificationManager";
 
 const geistSans = localFont({
   src: "./fonts/GeistVF.woff",
@@ -68,6 +69,7 @@ export default async function RootLayout({
       >
         <ThemeProvider>
           {currentUser && <PresenceTracker user={currentUser} />}
+          {currentUser && <PushNotificationAutoSync userId={currentUser.id} />}
           <Navbar user={currentUser} />
 
           <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8">
