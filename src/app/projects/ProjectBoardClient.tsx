@@ -1172,7 +1172,7 @@ export function ProjectBoardClient({
       {toast && (
         <div
           role="status"
-          className={`fixed bottom-6 right-6 z-50 flex items-center gap-3 px-4 py-3 rounded-2xl shadow-2xl text-xs font-semibold backdrop-blur-md border animate-fade-in ${
+          className={`fixed bottom-4 right-4 max-w-[calc(100vw-2rem)] sm:max-w-sm z-50 flex items-center gap-3 px-4 py-3 rounded-2xl shadow-2xl text-xs font-semibold backdrop-blur-md border animate-fade-in box-border ${
             toast.type === "error"
               ? "bg-rose-600/95 text-white border-rose-500 shadow-rose-900/30"
               : "bg-emerald-600/95 text-white border-emerald-500 shadow-emerald-900/30"

@@ -25,6 +25,7 @@ import {
   uploadAvatarAction,
 } from "@/actions/auth";
 import { DEPARTMENT_POSITIONS, DEPARTMENTS } from "@/lib/departments";
+import { compressImage } from "@/lib/image-compression";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
@@ -520,18 +521,16 @@ export function ManagementClient({
       return;
     }
 
-    const MAX_FILE_SIZE = 400 * 1024;
-    if (file.size > MAX_FILE_SIZE) {
-      const sizeKb = (file.size / 1024).toFixed(1);
-      setAdminUploadError(`Ukuran file terlalu besar (${sizeKb} KB). Maksimal foto adalah 400 KB.`);
-      if (adminFileInputRef.current) adminFileInputRef.current.value = "";
-      return;
-    }
-
     setAdminUploading(true);
     try {
+      const compressed = await compressImage(file, {
+        targetSizeKB: 360,
+        hardCeilingKB: 395,
+        maxDimension: 1024,
+      });
+
       const formData = new FormData();
-      formData.append("file", file);
+      formData.append("file", compressed.file);
       if (editingStaff) {
         formData.append("targetUserId", editingStaff.id);
       }
@@ -541,8 +540,8 @@ export function ManagementClient({
       } else {
         setEditAvatarUrl(res.url!);
       }
-    } catch {
-      setAdminUploadError("Terjadi kesalahan saat mengunggah foto.");
+    } catch (err: any) {
+      setAdminUploadError(err.message || "Terjadi kesalahan saat mengompresi atau mengunggah foto.");
     } finally {
       setAdminUploading(false);
       if (adminFileInputRef.current) adminFileInputRef.current.value = "";
@@ -1561,7 +1560,7 @@ export function ManagementClient({
                     <span>Foto Profil Staf</span>
                   </Label>
                   <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">
-                    Maks. 400 KB
+                    Auto Kompres
                   </span>
                 </div>
 
@@ -1596,7 +1595,7 @@ export function ManagementClient({
                         ) : (
                           <>
                             <Upload className="h-3 w-3" />
-                            <span>Upload Gambar (Maks 400KB)</span>
+                            <span>Upload Gambar</span>
                           </>
                         )}
                       </Button>

@@ -14,6 +14,7 @@ export interface CompressImageOptions {
   maxDimension?: number;
   targetSizeKB?: number;
   hardCeilingKB?: number;
+  fileName?: string;
 }
 
 /**
@@ -116,8 +117,8 @@ export async function compressImage(
     ctx.imageSmoothingQuality = "high";
     ctx.drawImage(img, 0, 0, targetWidth, targetHeight);
 
-    // Iterative quality reduction (targeting <= 450 KB, ceiling < 1 MB)
-    const qualities = [0.82, 0.72, 0.62, 0.52, 0.45, 0.38];
+    // Iterative quality reduction (targeting <= targetSizeBytes, ceiling <= hardCeilingBytes)
+    const qualities = [0.82, 0.72, 0.62, 0.52, 0.45, 0.38, 0.30];
     let selectedBlob: Blob | null = null;
     let mimeType = "image/webp";
 
@@ -150,7 +151,7 @@ export async function compressImage(
     // If still > targetSizeBytes after lowest quality, scale down canvas resolution
     if (selectedBlob && selectedBlob.size > targetSizeBytes) {
       let scale = 0.85;
-      for (let attempt = 0; attempt < 2 && selectedBlob.size > targetSizeBytes; attempt++) {
+      for (let attempt = 0; attempt < 6 && selectedBlob.size > targetSizeBytes; attempt++) {
         const downWidth = Math.round(targetWidth * scale);
         const downHeight = Math.round(targetHeight * scale);
         const downCanvas = document.createElement("canvas");
@@ -172,21 +173,45 @@ export async function compressImage(
       }
     }
 
+    // Safety guarantee against hard ceiling
+    if (selectedBlob && selectedBlob.size > hardCeilingBytes) {
+      let aggressiveQuality = 0.35;
+      while (selectedBlob.size > hardCeilingBytes && aggressiveQuality >= 0.15) {
+        targetWidth = Math.round(targetWidth * 0.8);
+        targetHeight = Math.round(targetHeight * 0.8);
+        const downCanvas = document.createElement("canvas");
+        downCanvas.width = targetWidth;
+        downCanvas.height = targetHeight;
+        const downCtx = downCanvas.getContext("2d");
+        if (downCtx) {
+          downCtx.imageSmoothingEnabled = true;
+          downCtx.imageSmoothingQuality = "medium";
+          downCtx.drawImage(canvas, 0, 0, targetWidth, targetHeight);
+          const downBlob = await canvasToBlob(downCanvas, mimeType, aggressiveQuality);
+          if (downBlob) {
+            selectedBlob = downBlob;
+          }
+        }
+        aggressiveQuality -= 0.1;
+      }
+    }
+
     if (!selectedBlob) {
       throw new Error("Gagal mengompresi gambar.");
     }
 
-    // Check hard ceiling of 1 MB
+    // Check hard ceiling
     if (selectedBlob.size > hardCeilingBytes) {
       throw new Error(
-        `Ukuran gambar (${formatFileSize(selectedBlob.size)}) melebihi batas maksimal 1 MB.`
+        `Ukuran gambar (${formatFileSize(selectedBlob.size)}) melebihi batas maksimal ${formatFileSize(hardCeilingBytes)}.`
       );
     }
 
     const extension = mimeType === "image/webp" ? "webp" : "jpg";
+    const fileName = options.fileName || `chat-${Date.now()}.${extension}`;
     const compressedFile = new File(
       [selectedBlob],
-      `chat-${Date.now()}.${extension}`,
+      fileName,
       { type: mimeType, lastModified: Date.now() }
     );
 

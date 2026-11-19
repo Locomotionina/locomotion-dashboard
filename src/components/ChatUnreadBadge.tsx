@@ -40,7 +40,12 @@ export function ChatUnreadBadge({
     <span
       role={onClick ? "button" : undefined}
       tabIndex={onClick ? 0 : undefined}
-      onClick={onClick}
+      onClick={(e) => {
+        if (onClick) {
+          e.stopPropagation();
+          onClick(e);
+        }
+      }}
       className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold shadow-xs transition-all ${
         hasTags
           ? "bg-amber-500/15 border border-amber-500/35 text-amber-600 dark:text-amber-400 animate-pulse hover:bg-amber-500/25"

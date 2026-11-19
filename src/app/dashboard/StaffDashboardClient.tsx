@@ -536,6 +536,8 @@ export function StaffDashboardClient({
   const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
   const [filterCalMonth, setFilterCalMonth] = useState(() => new Date());
   const datePickerRef = useRef<HTMLDivElement>(null);
+  const deepLinkHandledRef = useRef<string | null>(null);
+  const targetTaskHandledRef = useRef<string | null>(null);
   const [activeTab, setActiveTab] = useState("active");
   const [highlightedTaskId, setHighlightedTaskId] = useState<string | null>(null);
 
@@ -595,7 +597,8 @@ export function StaffDashboardClient({
       }
 
       const targetTaskId = params.get("taskId");
-      if (targetTaskId) {
+      if (targetTaskId && targetTaskHandledRef.current !== targetTaskId) {
+        targetTaskHandledRef.current = targetTaskId;
         const inActive = tasks.some((t) => t.id === targetTaskId);
         const inReview = reviewRequests.some((t) => t.id === targetTaskId);
         const inDelegated = delegatedTasks.some((t) => t.id === targetTaskId);
@@ -630,9 +633,18 @@ export function StaffDashboardClient({
       }
 
       const reviewTaskId = params.get("reviewTaskId");
-      if (reviewTaskId) {
+      if (reviewTaskId && deepLinkHandledRef.current !== reviewTaskId) {
+        deepLinkHandledRef.current = reviewTaskId;
         setReviewModalTaskId(reviewTaskId);
         setReviewModalOpen(true);
+        // Clean URL query param so subsequent task updates / router refreshes do not re-trigger modal opening
+        try {
+          const url = new URL(window.location.href);
+          url.searchParams.delete("reviewTaskId");
+          window.history.replaceState({}, "", url.pathname + (url.searchParams.toString() ? `?${url.searchParams.toString()}` : "") + url.hash);
+        } catch {
+          // ignore
+        }
       }
     }
   }, [tasks, reviewRequests, delegatedTasks, allTasks, archivedTasks, isAdminOrPM]);
@@ -2925,7 +2937,10 @@ export function StaffDashboardClient({
 
                           {task.folder && (
                             <span
-                              onClick={() => setActiveFolderId(task.folder?.id || null)}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setActiveFolderId(task.folder?.id || null);
+                              }}
                               className="inline-flex items-center gap-1.5 text-xs font-semibold text-amber-700 dark:text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 px-2.5 py-0.5 rounded-full border border-amber-500/25 cursor-pointer transition-colors"
                               title={`Folder: ${task.folder.name} (Klik untuk masuk folder)`}
                             >
@@ -2940,7 +2955,10 @@ export function StaffDashboardClient({
                             <ChatUnreadBadge
                               unreadMessageCount={taskUnreadInfo[task.id]?.unreadMessageCount}
                               unreadTagCount={taskUnreadInfo[task.id]?.unreadTagCount ?? taskUnreadMentions[task.id]}
-                              onClick={() => handleOpenReviewModal(task)}
+                              onClick={(e) => {
+                                e?.stopPropagation();
+                                handleOpenReviewModal(task);
+                              }}
                             />
                             {task.taskOutputType && (
                               <span
@@ -3050,7 +3068,10 @@ export function StaffDashboardClient({
                                   type="button"
                                   variant="ghost"
                                   size="sm"
-                                  onClick={() => toggleBriefExpand(task.id)}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    toggleBriefExpand(task.id);
+                                  }}
                                   className="h-6 px-1.5 text-[11px] font-semibold text-blue-700 dark:text-blue-300 hover:bg-blue-500/15 gap-1 rounded-md"
                                   title={isBriefExpanded ? "Ciutkan Brief" : "Buka Brief Lengkap"}
                                 >
@@ -3077,7 +3098,10 @@ export function StaffDashboardClient({
                               {isBriefLong && (
                                 <button
                                   type="button"
-                                  onClick={() => toggleBriefExpand(task.id)}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    toggleBriefExpand(task.id);
+                                  }}
                                   className="inline-flex items-center gap-1 text-[11px] text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 font-semibold mt-1.5 transition-colors group"
                                 >
                                   <span>{isBriefExpanded ? "Sembunyikan sebagian" : "Baca brief selengkapnya..."}</span>
@@ -3176,7 +3200,10 @@ export function StaffDashboardClient({
                             variant="ghost"
                             size="sm"
                             className="h-7 text-[11px] gap-1 px-2 rounded-lg text-muted-foreground hover:text-foreground shrink-0"
-                            onClick={() => setExpandedRecapId(expandedRecapId === task.id ? null : task.id)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setExpandedRecapId(expandedRecapId === task.id ? null : task.id);
+                            }}
                             title="Lihat rincian waktu"
                           >
                             <History className="h-3 w-3" />
@@ -3192,7 +3219,10 @@ export function StaffDashboardClient({
                               size="sm"
                               variant="ghost"
                               className="h-7 w-7 p-0 rounded-lg hover:bg-secondary text-muted-foreground hover:text-foreground"
-                              onClick={() => setEditTask(task)}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setEditTask(task);
+                              }}
                               title="Edit Task (Pemberi Task)"
                             >
                               <Edit className="h-3.5 w-3.5" />
@@ -3201,7 +3231,10 @@ export function StaffDashboardClient({
                               size="sm"
                               variant="ghost"
                               className="h-7 w-7 p-0 rounded-lg text-rose-500 hover:text-rose-600 hover:bg-rose-500/10"
-                              onClick={() => handleDeleteTask(task.id)}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDeleteTask(task.id);
+                              }}
                               title="Delete Task (Pemberi Task)"
                             >
                               <Trash2 className="h-3.5 w-3.5" />
@@ -3218,7 +3251,10 @@ export function StaffDashboardClient({
                             <Button
                               size="sm"
                               disabled={isLoading}
-                              onClick={() => handleStartTimer(task.id)}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleStartTimer(task.id);
+                              }}
                               className="shrink-0 whitespace-nowrap min-w-fit gap-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 text-white font-semibold text-xs shadow-sm h-8 px-3.5 border-0"
                             >
                               {isLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5 fill-white" />}
@@ -3230,7 +3266,10 @@ export function StaffDashboardClient({
                                 size="sm"
                                 variant="outline"
                                 disabled={isLoading}
-                                onClick={() => handleDoneTask(task.id)}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDoneTask(task.id);
+                                }}
                                 className="shrink-0 whitespace-nowrap min-w-fit gap-1.5 rounded-xl border-emerald-500/40 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500/10 font-semibold text-xs shadow-sm h-8 px-3"
                                 title="Tandai langsung Selesai (Done)"
                               >
@@ -3241,15 +3280,18 @@ export function StaffDashboardClient({
                           </div>
                         )}
 
-                        {/* State 2: On Progress */}
-                        {task.status === "On Progress" && (
+                        {/* State 2: On Progress / Revision in Progress */}
+                        {(task.status === "On Progress" || task.status === "Revision") && (
                           <div className="flex items-center gap-2 flex-wrap w-full">
                             {isWorking ? (
                               <Button
                                 size="sm"
                                 variant="outline"
                                 disabled={isLoading}
-                                onClick={() => handlePauseTimer(task.id)}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handlePauseTimer(task.id);
+                                }}
                                 className="shrink-0 whitespace-nowrap min-w-fit gap-1 rounded-xl border-amber-500/40 text-amber-600 dark:text-amber-400 hover:bg-amber-500/10 font-semibold text-xs h-8 px-2.5"
                               >
                                 {isLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Pause className="h-3 w-3 fill-amber-500" />}
@@ -3260,7 +3302,10 @@ export function StaffDashboardClient({
                                 size="sm"
                                 variant="outline"
                                 disabled={isLoading}
-                                onClick={() => handleStartTimer(task.id)}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleStartTimer(task.id);
+                                }}
                                 className="shrink-0 whitespace-nowrap min-w-fit gap-1 rounded-xl border-blue-500/40 text-blue-600 dark:text-blue-400 hover:bg-blue-500/10 font-semibold text-xs h-8 px-2.5"
                               >
                                 {isLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3 fill-blue-500" />}
@@ -3272,7 +3317,10 @@ export function StaffDashboardClient({
                               size="sm"
                               variant="outline"
                               disabled={isLoading}
-                              onClick={() => handleOpenReviewModal(task)}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleOpenReviewModal(task);
+                              }}
                               className="shrink-0 whitespace-nowrap min-w-fit gap-1.5 rounded-xl border-purple-500/40 text-purple-700 dark:text-purple-300 hover:bg-purple-500/10 font-semibold text-xs shadow-sm h-8 px-3 relative"
                               title="Buka panel Review Tugas & chat"
                             >
@@ -3288,7 +3336,10 @@ export function StaffDashboardClient({
                             <Button
                               size="sm"
                               disabled={isLoading}
-                              onClick={() => handleDoneTask(task.id)}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDoneTask(task.id);
+                              }}
                               className="shrink-0 whitespace-nowrap min-w-fit gap-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 dark:bg-emerald-500 dark:hover:bg-emerald-600 text-white font-semibold text-xs shadow-sm h-8 px-3.5 border-0"
                               title="Tandai langsung Selesai (Done)"
                             >
@@ -3298,64 +3349,7 @@ export function StaffDashboardClient({
                           </div>
                         )}
 
-                        {/* State 3: Revision Phase */}
-                        {isRevisionPhase && (
-                          <div className="flex items-center gap-2 flex-wrap w-full">
-                            {isWorking ? (
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                disabled={isLoading}
-                                onClick={() => handlePauseTimer(task.id)}
-                                className="shrink-0 whitespace-nowrap min-w-fit gap-1 rounded-xl border-amber-500/40 text-amber-600 dark:text-amber-400 hover:bg-amber-500/10 font-semibold text-xs h-8 px-2.5"
-                              >
-                                {isLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Pause className="h-3 w-3 fill-amber-500" />}
-                                <span>Jeda</span>
-                              </Button>
-                            ) : (
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                disabled={isLoading}
-                                onClick={() => handleStartTimer(task.id)}
-                                className="shrink-0 whitespace-nowrap min-w-fit gap-1 rounded-xl border-rose-500/40 text-rose-600 dark:text-rose-400 hover:bg-rose-500/10 font-semibold text-xs h-8 px-2.5"
-                              >
-                                {isLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3 fill-rose-500" />}
-                                <span>Start Rev #{task.currentRevisionRound}</span>
-                              </Button>
-                            )}
-
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              disabled={isLoading}
-                              onClick={() => handleOpenReviewModal(task)}
-                              className="shrink-0 whitespace-nowrap min-w-fit gap-1.5 rounded-xl border-purple-500/40 text-purple-700 dark:text-purple-300 hover:bg-purple-500/10 font-semibold text-xs shadow-sm h-8 px-3 relative"
-                              title="Buka panel Review Tugas & chat"
-                            >
-                              <Eye className="h-3.5 w-3.5 text-purple-600 dark:text-purple-400" />
-                              <span>Review Tugas</span>
-                              <ChatUnreadBadge
-                                unreadMessageCount={taskUnreadInfo[task.id]?.unreadMessageCount}
-                                unreadTagCount={taskUnreadInfo[task.id]?.unreadTagCount ?? taskUnreadMentions[task.id]}
-                                compact
-                              />
-                            </Button>
-
-                            <Button
-                              size="sm"
-                              disabled={isLoading}
-                              onClick={() => handleDoneTask(task.id)}
-                              className="shrink-0 whitespace-nowrap min-w-fit gap-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 dark:bg-emerald-500 dark:hover:bg-emerald-600 text-white font-semibold text-xs shadow-sm h-8 px-3.5 border-0"
-                              title="Tandai revisi selesai dan selesaikan task"
-                            >
-                              {isLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
-                              <span>Done</span>
-                            </Button>
-                          </div>
-                        )}
-
-                        {/* State 4: In Review */}
+                        {/* State 3: In Review */}
                         {task.status === "In Review" && (
                           <div className="flex items-center justify-between gap-2 flex-wrap w-full min-w-0 pt-1">
                             <div className="flex items-center gap-2 flex-wrap">
@@ -3372,7 +3366,10 @@ export function StaffDashboardClient({
                                 size="sm"
                                 variant="outline"
                                 disabled={isLoading}
-                                onClick={() => handleOpenReviewModal(task)}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleOpenReviewModal(task);
+                                }}
                                 className="shrink-0 whitespace-nowrap min-w-fit gap-1.5 rounded-xl border-purple-500/40 text-purple-700 dark:text-purple-300 hover:bg-purple-500/10 font-semibold text-xs shadow-sm h-8 px-3 relative"
                                 title="Buka panel Review Tugas & chat"
                               >
@@ -3391,7 +3388,10 @@ export function StaffDashboardClient({
                               <Button
                                 size="sm"
                                 disabled={isLoading}
-                                onClick={() => handlePullBackRevision(task.id)}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handlePullBackRevision(task.id);
+                                }}
                                 className="shrink-0 whitespace-nowrap min-w-fit gap-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 dark:bg-amber-600 dark:hover:bg-amber-700 text-white font-semibold text-xs shadow-sm h-8 px-3.5 border-0 transition-transform active:scale-95 ml-auto"
                                 title="Tarik kembali task ke On Progress dan buka stopwatch timer untuk segera mengerjakan revisi"
                               >
@@ -3406,7 +3406,7 @@ export function StaffDashboardClient({
                           </div>
                         )}
 
-                        {/* State 5: Done */}
+                        {/* State 4: Done */}
                         {task.status === "Done" && (
                           <div className="flex items-center gap-1.5 text-xs font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-3 py-1.5 rounded-xl shrink-0">
                             <CheckCircle2 className="h-3.5 w-3.5" />
@@ -3473,7 +3473,10 @@ export function StaffDashboardClient({
 
                           {task.folder && (
                             <span
-                              onClick={() => setActiveFolderId(task.folder?.id || null)}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setActiveFolderId(task.folder?.id || null);
+                              }}
                               className="inline-flex items-center gap-1.5 text-xs font-semibold text-amber-700 dark:text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 px-2.5 py-0.5 rounded-full border border-amber-500/25 cursor-pointer transition-colors"
                               title={`Folder: ${task.folder.name} (Klik untuk masuk folder)`}
                             >
@@ -3488,7 +3491,10 @@ export function StaffDashboardClient({
                             <ChatUnreadBadge
                               unreadMessageCount={taskUnreadInfo[task.id]?.unreadMessageCount}
                               unreadTagCount={taskUnreadInfo[task.id]?.unreadTagCount ?? taskUnreadMentions[task.id]}
-                              onClick={() => handleOpenReviewModal(task)}
+                              onClick={(e) => {
+                                e?.stopPropagation();
+                                handleOpenReviewModal(task);
+                              }}
                             />
                             {task.taskOutputType && (
                               <span
@@ -3710,7 +3716,10 @@ export function StaffDashboardClient({
                           variant="ghost"
                           size="sm"
                           className="h-7 text-[11px] gap-1 px-2 rounded-lg text-muted-foreground hover:text-foreground"
-                          onClick={() => setExpandedRecapId(expandedRecapId === task.id ? null : task.id)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setExpandedRecapId(expandedRecapId === task.id ? null : task.id);
+                          }}
                           title="Lihat rincian waktu"
                         >
                           <History className="h-3 w-3" />
@@ -3725,7 +3734,10 @@ export function StaffDashboardClient({
                           size="sm"
                           variant="outline"
                           disabled={isLoading}
-                          onClick={() => handleOpenReviewModal(task)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleOpenReviewModal(task);
+                          }}
                           className="shrink-0 whitespace-nowrap min-w-fit gap-1.5 rounded-xl border-purple-500/40 text-purple-700 dark:text-purple-300 hover:bg-purple-500/10 font-semibold text-xs shadow-sm h-8 px-3 relative"
                           title="Buka panel Review Tugas & chat"
                         >
@@ -3742,7 +3754,10 @@ export function StaffDashboardClient({
                           <Button
                             size="sm"
                             disabled={isLoading}
-                            onClick={() => handleApproveTask(task.id)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleApproveTask(task.id);
+                            }}
                             className="shrink-0 whitespace-nowrap min-w-fit gap-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 dark:bg-emerald-500 dark:hover:bg-emerald-600 text-white font-semibold text-xs shadow-sm h-8 px-3.5 border-0"
                             title="Setujui hasil kerja dan tandai task resmi selesai"
                           >
@@ -3838,7 +3853,10 @@ export function StaffDashboardClient({
 
                           {task.folder && (
                             <span
-                              onClick={() => setActiveFolderId(task.folder?.id || null)}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setActiveFolderId(task.folder?.id || null);
+                              }}
                               className="inline-flex items-center gap-1.5 text-xs font-semibold text-amber-700 dark:text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 px-2.5 py-0.5 rounded-full border border-amber-500/25 cursor-pointer transition-colors"
                               title={`Folder: ${task.folder.name} (Klik untuk masuk folder)`}
                             >
@@ -3853,7 +3871,10 @@ export function StaffDashboardClient({
                             <ChatUnreadBadge
                               unreadMessageCount={taskUnreadInfo[task.id]?.unreadMessageCount}
                               unreadTagCount={taskUnreadInfo[task.id]?.unreadTagCount ?? taskUnreadMentions[task.id]}
-                              onClick={() => handleOpenReviewModal(task)}
+                              onClick={(e) => {
+                                e?.stopPropagation();
+                                handleOpenReviewModal(task);
+                              }}
                             />
                             {task.taskOutputType && (
                               <span
@@ -4075,7 +4096,10 @@ export function StaffDashboardClient({
                           variant="ghost"
                           size="sm"
                           className="h-7 text-[11px] gap-1 px-2 rounded-lg text-muted-foreground hover:text-foreground"
-                          onClick={() => setExpandedRecapId(expandedRecapId === task.id ? null : task.id)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setExpandedRecapId(expandedRecapId === task.id ? null : task.id);
+                          }}
                           title="Lihat rincian waktu"
                         >
                           <History className="h-3 w-3" />
@@ -4090,7 +4114,10 @@ export function StaffDashboardClient({
                           size="sm"
                           variant="outline"
                           disabled={isLoading}
-                          onClick={() => handleOpenReviewModal(task)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleOpenReviewModal(task);
+                          }}
                           className="h-8 text-xs font-semibold px-2.5 rounded-xl border-purple-500/40 text-purple-700 dark:text-purple-300 hover:bg-purple-500/10 gap-1.5 relative shadow-sm"
                           title="Buka panel Review Tugas & chat"
                         >
@@ -4107,7 +4134,10 @@ export function StaffDashboardClient({
                           <Button
                             size="sm"
                             disabled={isLoading}
-                            onClick={() => handleApproveTask(task.id)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleApproveTask(task.id);
+                            }}
                             className="h-8 text-xs font-semibold px-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 text-white gap-1 border-0 shadow-sm"
                             title="Setujui hasil kerja dan tandai task resmi selesai"
                           >
@@ -4119,7 +4149,10 @@ export function StaffDashboardClient({
                           size="sm"
                           variant="ghost"
                           className="h-8 w-8 p-0 rounded-lg hover:bg-secondary text-muted-foreground hover:text-foreground"
-                          onClick={() => setEditTask(task as any)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setEditTask(task as any);
+                          }}
                           title="Edit Delegated Task"
                         >
                           <Edit className="h-3.5 w-3.5" />
@@ -4128,7 +4161,10 @@ export function StaffDashboardClient({
                           size="sm"
                           variant="ghost"
                           className="h-8 w-8 p-0 rounded-lg text-rose-500 hover:text-rose-600 hover:bg-rose-500/10"
-                          onClick={() => handleDeleteTask(task.id)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteTask(task.id);
+                          }}
                           title="Delete Task"
                         >
                           <Trash2 className="h-3.5 w-3.5" />
@@ -4469,7 +4505,10 @@ export function StaffDashboardClient({
                           <Button
                             size="sm"
                             variant="outline"
-                            onClick={() => handleOpenReviewModal(task)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleOpenReviewModal(task);
+                            }}
                             className="h-8 text-xs font-semibold px-2.5 rounded-xl border-purple-500/40 text-purple-700 dark:text-purple-300 hover:bg-purple-500/10 gap-1.5 relative shadow-sm"
                             title="Buka panel Review Tugas"
                           >
@@ -4486,7 +4525,10 @@ export function StaffDashboardClient({
                             <Button
                               size="sm"
                               disabled={isLoading}
-                              onClick={() => handleApproveTask(task.id)}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleApproveTask(task.id);
+                              }}
                               className="h-8 text-xs font-semibold px-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 text-white gap-1 border-0"
                             >
                               <Check className="h-3.5 w-3.5" />
@@ -4498,7 +4540,10 @@ export function StaffDashboardClient({
                             size="sm"
                             variant="ghost"
                             className="h-8 w-8 p-0 rounded-lg hover:bg-secondary text-muted-foreground hover:text-foreground"
-                            onClick={() => setEditTask(task as any)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setEditTask(task as any);
+                            }}
                             title="Edit / Reassign Task (Admin/PM)"
                           >
                             <Edit className="h-3.5 w-3.5" />
@@ -4508,7 +4553,10 @@ export function StaffDashboardClient({
                             size="sm"
                             variant="ghost"
                             className="h-8 w-8 p-0 rounded-lg text-rose-500 hover:text-rose-600 hover:bg-rose-500/10"
-                            onClick={() => handleDeleteTask(task.id)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteTask(task.id);
+                            }}
                             title="Hapus Task (Admin/PM)"
                           >
                             <Trash2 className="h-3.5 w-3.5" />
@@ -5316,7 +5364,21 @@ export function StaffDashboardClient({
       <TaskReviewModal
         taskId={reviewModalTaskId}
         isOpen={reviewModalOpen}
-        onClose={() => setReviewModalOpen(false)}
+        onClose={() => {
+          setReviewModalOpen(false);
+          setReviewModalTaskId(null);
+          if (typeof window !== "undefined") {
+            try {
+              const url = new URL(window.location.href);
+              if (url.searchParams.has("reviewTaskId")) {
+                url.searchParams.delete("reviewTaskId");
+                window.history.replaceState({}, "", url.pathname + (url.searchParams.toString() ? `?${url.searchParams.toString()}` : "") + url.hash);
+              }
+            } catch {
+              // ignore
+            }
+          }
+        }}
         currentUser={user}
         availableUsers={staffMembers}
         onTaskUpdated={(updatedTask) => {
@@ -5334,7 +5396,7 @@ export function StaffDashboardClient({
       {toast && (
         <div
           role="status"
-          className={`fixed bottom-6 right-6 z-50 flex items-center gap-3 px-4 py-3 rounded-2xl shadow-2xl text-xs font-semibold backdrop-blur-md border animate-fade-in ${
+          className={`fixed bottom-4 right-4 max-w-[calc(100vw-2rem)] sm:max-w-sm z-50 flex items-center gap-3 px-4 py-3 rounded-2xl shadow-2xl text-xs font-semibold backdrop-blur-md border animate-fade-in box-border ${
             toast.type === "error"
               ? "bg-rose-600/95 text-white border-rose-500 shadow-rose-900/30"
               : toast.type === "success"
@@ -5347,11 +5409,11 @@ export function StaffDashboardClient({
           ) : (
             <CheckCircle2 className="h-4 w-4 shrink-0 text-white" />
           )}
-          <span>{toast.message}</span>
+          <span className="flex-1 break-words">{toast.message}</span>
           <button
             type="button"
             onClick={() => setToast(null)}
-            className="ml-2 text-white/80 hover:text-white p-0.5 rounded-full hover:bg-white/10"
+            className="ml-2 text-white/80 hover:text-white p-0.5 rounded-full hover:bg-white/10 shrink-0"
           >
             <X className="h-3.5 w-3.5" />
           </button>

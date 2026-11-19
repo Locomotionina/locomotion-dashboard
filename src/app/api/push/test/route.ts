@@ -9,8 +9,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    let customMessage = "Ini adalah pengujian notifikasi push dari Locomotion Dashboard Tracker.";
-    let customTitle = "Locomotion Test Push 🔔";
+    let customMessage = "Notifikasi push aktif dan berfungsi normal.";
+    let customTitle = "Uji Notifikasi 🔔";
     let targetUrl = "/dashboard";
 
     try {

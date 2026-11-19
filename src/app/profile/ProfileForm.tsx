@@ -29,6 +29,7 @@ import {
   Image as ImageIcon,
 } from "lucide-react";
 import { PushNotificationProfileCard } from "@/components/PushNotificationManager";
+import { compressImage } from "@/lib/image-compression";
 
 interface PendingProfileRequest {
   id: string;
@@ -62,14 +63,12 @@ export function ProfileForm({
   const [profileError, setProfileError] = useState<string | null>(null);
   const [avatarUrl, setAvatarUrl] = useState<string>(user.avatarUrl || "");
 
-  // Avatar Upload State (Strict 400KB Limit)
+  // Avatar Upload State (Auto-Compress to <= 400KB)
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadSuccess, setUploadSuccess] = useState<string | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-
-  const MAX_FILE_SIZE = 400 * 1024; // 400 KB
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -78,31 +77,30 @@ export function ProfileForm({
     setUploadError(null);
     setUploadSuccess(null);
 
-    // Validate MIME type (JPG, PNG, WebP, GIF)
-    const allowedTypes = ["image/jpeg", "image/jpg", "image/png", "image/webp", "image/gif"];
+    // Validate MIME type (JPG, PNG, WebP)
+    const allowedTypes = ["image/jpeg", "image/jpg", "image/png", "image/webp"];
     if (!allowedTypes.includes(file.type.toLowerCase())) {
-      setUploadError("Format file tidak valid. Harap pilih file gambar (JPG, PNG, WebP, GIF).");
+      setUploadError("Format file tidak valid. Harap pilih file gambar (JPG, PNG, WebP).");
       if (fileInputRef.current) fileInputRef.current.value = "";
       return;
     }
 
-    // Validate File Size: Max 400KB
-    if (file.size > MAX_FILE_SIZE) {
-      const sizeKb = (file.size / 1024).toFixed(1);
-      setUploadError(`Ukuran file terlalu besar (${sizeKb} KB). Batas maksimal foto profil adalah 400 KB.`);
-      if (fileInputRef.current) fileInputRef.current.value = "";
-      return;
-    }
-
-    // Instant local preview
-    const objectUrl = URL.createObjectURL(file);
-    setPreviewUrl(objectUrl);
-
-    // Upload via Server Action
     setUploading(true);
     try {
+      // Auto-compress any image down to <= 400 KB before storage upload
+      const compressed = await compressImage(file, {
+        targetSizeKB: 360,
+        hardCeilingKB: 395,
+        maxDimension: 1024,
+        fileName: `avatar-${Date.now()}.${file.type.toLowerCase().includes("webp") ? "webp" : "jpg"}`,
+      });
+
+      // Local preview of the compressed image
+      setPreviewUrl(compressed.previewUrl);
+
+      // Upload via Server Action
       const formData = new FormData();
-      formData.append("file", file);
+      formData.append("file", compressed.file);
 
       const res = await uploadAvatarAction(formData);
       if (!res.success) {
@@ -116,8 +114,9 @@ export function ProfileForm({
             : "Foto profil berhasil diverifikasi dan disimpan!"
         );
       }
-    } catch {
-      setUploadError("Terjadi kesalahan koneksi saat mengunggah foto.");
+    } catch (err: any) {
+      console.error("Avatar upload error:", err);
+      setUploadError(err.message || "Terjadi kesalahan saat memproses atau mengunggah foto.");
       setPreviewUrl(null);
     } finally {
       setUploading(false);
@@ -303,7 +302,7 @@ export function ProfileForm({
                     type="file"
                     ref={fileInputRef}
                     onChange={handleFileChange}
-                    accept="image/jpeg,image/png,image/webp,image/gif"
+                    accept="image/jpeg,image/png,image/webp"
                     className="hidden"
                     disabled={uploading}
                   />
@@ -346,8 +345,7 @@ export function ProfileForm({
                 </div>
 
                 <p className="text-[11px] text-muted-foreground leading-relaxed">
-                  Format gambar yang didukung: <span className="font-semibold text-foreground">JPG, PNG, WebP, GIF</span>.
-                  Ukuran file dibatasi <span className="font-semibold text-blue-600 dark:text-blue-400 underline">maksimal 400 KB</span>.
+                  Format gambar yang didukung: JPG, PNG, WebP. Bebas ukuran file — sistem akan otomatis mengompres foto.
                 </p>
 
                 {/* Upload Feedback Message */}

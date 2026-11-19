@@ -377,8 +377,8 @@ export function usePushNotifications(userId?: string) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          title: "Uji Notifikasi Locomotion 🚀",
-          message: "Native Push Notifications berfungsi dengan sempurna di perangkat ini!",
+          title: "Uji Notifikasi 🔔",
+          message: "Notifikasi push aktif dan berfungsi normal.",
           url: "/dashboard",
         }),
       });
@@ -388,7 +388,7 @@ export function usePushNotifications(userId?: string) {
         throw new Error(data.message || "Gagal mengirim notifikasi tes.");
       }
 
-      showToast("Notifikasi tes terkirim! Periksa banner/notifikasi perangkat Anda.", "success");
+      showToast("Notifikasi tes terkirim! Periksa banner perangkat Anda.", "success");
     } catch (err: any) {
       console.error("[Push] Test notification error:", err);
       showToast(err.message || "Gagal mengirim notifikasi tes.", "error");
@@ -591,7 +591,7 @@ export function ToastBanner({
   if (!toast) return null;
 
   return (
-    <div className="fixed bottom-6 right-6 z-50 flex items-center gap-3 px-4 py-3 rounded-2xl bg-card/95 backdrop-blur-md border border-border shadow-2xl text-xs max-w-sm animate-in fade-in slide-in-from-bottom-4">
+    <div className="fixed bottom-4 right-4 max-w-[calc(100vw-2rem)] sm:max-w-sm z-50 flex items-center gap-3 px-4 py-3 rounded-2xl bg-card/95 backdrop-blur-md border border-border shadow-2xl text-xs animate-in fade-in slide-in-from-bottom-4 box-border">
       {toast.type === "success" && (
         <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />
       )}
@@ -601,13 +601,13 @@ export function ToastBanner({
       {toast.type === "info" && (
         <Bell className="h-4 w-4 text-blue-500 shrink-0" />
       )}
-      <span className="flex-1 text-foreground font-medium leading-relaxed">
+      <span className="flex-1 text-foreground font-medium leading-relaxed break-words">
         {toast.message}
       </span>
       <button
         onClick={onClose}
         aria-label="Tutup notifikasi"
-        className="p-1 text-muted-foreground hover:text-foreground rounded-md transition-colors"
+        className="p-1 text-muted-foreground hover:text-foreground rounded-md transition-colors shrink-0"
       >
         <X className="h-3.5 w-3.5" />
       </button>
