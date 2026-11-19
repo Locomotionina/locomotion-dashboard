@@ -228,7 +228,8 @@ model ProjectMessage {
   project          Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
   userId           String           @map("user_id")
   user             User             @relation(fields: [userId], references: [id], onDelete: Cascade)
-  content          String
+  content          String?
+  imageUrl         String?          @map("image_url")
   replyToId        String?          @map("reply_to_id")
   replyTo          ProjectMessage?  @relation("MessageReplies", fields: [replyToId], references: [id], onDelete: SetNull)
   replies          ProjectMessage[] @relation("MessageReplies")
@@ -260,7 +261,8 @@ model TaskMessage {
   task             Task             @relation(fields: [taskId], references: [id], onDelete: Cascade)
   userId           String           @map("user_id")
   user             User             @relation(fields: [userId], references: [id], onDelete: Cascade)
-  content          String
+  content          String?
+  imageUrl         String?          @map("image_url")
   replyToId        String?          @map("reply_to_id")
   replyTo          TaskMessage?     @relation("TaskMessageReplies", fields: [replyToId], references: [id], onDelete: SetNull)
   replies          TaskMessage[]    @relation("TaskMessageReplies")

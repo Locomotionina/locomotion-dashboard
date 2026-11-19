@@ -14,6 +14,8 @@ import {
   X,
   AtSign,
   Users,
+  ImageIcon,
+  Paperclip,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -25,17 +27,25 @@ import {
   getSupabaseBrowserClient,
   LOCOMOTION_PROJECT_CHAT_GLOBAL_CHANNEL,
 } from "@/lib/supabase";
+import {
+  compressImage,
+  uploadChatImage,
+  formatFileSize,
+} from "@/lib/image-compression";
+import { ChatImageLightbox } from "@/components/ChatImageLightbox";
 
 export interface ProjectChatMessage {
   id: string;
   projectId: string;
   userId: string;
-  content: string;
+  content: string | null;
+  imageUrl?: string | null;
   createdAt: string;
   replyToId?: string | null;
   replyTo?: {
     id: string;
-    content: string;
+    content: string | null;
+    imageUrl?: string | null;
     userId: string;
     userName: string;
   } | null;
@@ -207,9 +217,21 @@ export function ProjectDiscussionThread({
   const [replyingTo, setReplyingTo] = useState<{
     id: string;
     senderName: string;
-    content: string;
+    content: string | null;
+    imageUrl?: string | null;
   } | null>(null);
   const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
+
+  // Image Attachment & Lightbox State
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [attachedImage, setAttachedImage] = useState<{
+    blob: Blob;
+    file: File;
+    previewUrl: string;
+    size: number;
+  } | null>(null);
+  const [isCompressing, setIsCompressing] = useState(false);
+  const [lightboxImageUrl, setLightboxImageUrl] = useState<string | null>(null);
 
   // Mention Autocomplete State
   const [showMentionDropdown, setShowMentionDropdown] = useState(false);
@@ -513,12 +535,62 @@ export function ProjectDiscussionThread({
     }
   };
 
+  // Process & compress selected or pasted image
+  const processAndSetImage = async (fileOrBlob: File | Blob) => {
+    try {
+      setIsCompressing(true);
+      const res = await compressImage(fileOrBlob);
+      if (attachedImage?.previewUrl) {
+        URL.revokeObjectURL(attachedImage.previewUrl);
+      }
+      setAttachedImage({
+        blob: res.blob,
+        file: res.file,
+        previewUrl: res.previewUrl,
+        size: res.size,
+      });
+      setTimeout(() => textareaRef.current?.focus(), 20);
+    } catch (err: any) {
+      alert(err.message || "Gagal mengompresi gambar.");
+    } finally {
+      setIsCompressing(false);
+    }
+  };
+
+  // Direct clipboard paste listener (Ctrl+V / Cmd+V)
+  const handlePaste = async (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      if (item.type.startsWith("image/")) {
+        e.preventDefault();
+        const file = item.getAsFile();
+        if (file) {
+          await processAndSetImage(file);
+        }
+        break;
+      }
+    }
+  };
+
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      await processAndSetImage(file);
+    }
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  };
+
   // Initiate message quote reply
   const handleReplyClick = (msg: ProjectChatMessage) => {
     setReplyingTo({
       id: msg.id,
       senderName: msg.user?.name || "Member",
-      content: msg.content,
+      content: msg.content || null,
+      imageUrl: msg.imageUrl || null,
     });
     setTimeout(() => {
       textareaRef.current?.focus();
@@ -528,11 +600,12 @@ export function ProjectDiscussionThread({
   // Handle message sending with instant zero-latency optimistic UI update
   const handleSendMessage = async () => {
     const trimmed = inputContent.trim();
-    if (!trimmed) return;
+    if ((!trimmed && !attachedImage) || isSubmitting || isCompressing) return;
 
     // Snapshot current composer states
     const replySnapshot = replyingTo;
     const tagsSnapshot = [...mentionedUserIds];
+    const imageSnapshot = attachedImage;
 
     // 1. Instantly clear composer inputs so user can keep typing immediately
     setInputContent("");
@@ -540,6 +613,7 @@ export function ProjectDiscussionThread({
     setMentionedUserIds([]);
     setShowMentionDropdown(false);
     setErrorMessage(null);
+    setAttachedImage(null);
 
     // Keep textarea focused on laptop/desktop
     setTimeout(() => {
@@ -558,12 +632,14 @@ export function ProjectDiscussionThread({
       id: tempId,
       projectId,
       userId: currentUser?.id || "temp-user",
-      content: trimmed,
+      content: trimmed || null,
+      imageUrl: imageSnapshot?.previewUrl || null,
       replyToId: replySnapshot?.id || null,
       replyTo: replySnapshot
         ? {
             id: replySnapshot.id,
-            content: replySnapshot.content,
+            content: replySnapshot.content || null,
+            imageUrl: replySnapshot.imageUrl || null,
             userId: "",
             userName: replySnapshot.senderName,
           }
@@ -590,11 +666,17 @@ export function ProjectDiscussionThread({
     // 4. Send to server in background
     setIsSubmitting(true);
     try {
+      let uploadedUrl: string | null = null;
+      if (imageSnapshot) {
+        uploadedUrl = await uploadChatImage(imageSnapshot.blob, projectId, "project");
+      }
+
       const res = await sendProjectMessageAction(
         projectId,
         trimmed,
         replySnapshot?.id || null,
-        tagsSnapshot
+        tagsSnapshot,
+        uploadedUrl
       );
 
       if (res.success && res.message) {
@@ -639,6 +721,7 @@ export function ProjectDiscussionThread({
         setInputContent(trimmed);
         setReplyingTo(replySnapshot);
         setMentionedUserIds(tagsSnapshot);
+        setAttachedImage(imageSnapshot);
         setErrorMessage(res.error || "Gagal mengirim pesan.");
       }
     } catch (err: any) {
@@ -647,9 +730,13 @@ export function ProjectDiscussionThread({
       setInputContent(trimmed);
       setReplyingTo(replySnapshot);
       setMentionedUserIds(tagsSnapshot);
+      setAttachedImage(imageSnapshot);
       setErrorMessage(err.message || "Terjadi kesalahan saat mengirim pesan.");
     } finally {
       setIsSubmitting(false);
+      if (imageSnapshot?.previewUrl) {
+        URL.revokeObjectURL(imageSnapshot.previewUrl);
+      }
     }
   };
 
@@ -741,6 +828,10 @@ export function ProjectDiscussionThread({
             const hasQuote = Boolean(msg.replyTo || originalMsg);
             const quotedTargetId = msg.replyTo?.id || originalMsg?.id || msg.replyToId;
             const quotedContent = msg.replyTo?.content || originalMsg?.content || "";
+            const quotedHasImage = Boolean(msg.replyTo?.imageUrl || originalMsg?.imageUrl);
+            const quotedDisplaySnippet = quotedContent
+              ? (quotedHasImage ? `📷 ${quotedContent}` : quotedContent)
+              : (quotedHasImage ? "📷 Foto" : "");
             const quotedAuthorName =
               msg.replyTo?.userName ||
               originalMsg?.user?.name ||
@@ -797,19 +888,34 @@ export function ProjectDiscussionThread({
                               <span>{quotedAuthorName}</span>
                             </div>
                             <p className="line-clamp-1 italic text-[10px] text-blue-100/90 mt-0.5">
-                              {quotedContent}
+                              {quotedDisplaySnippet}
                             </p>
                           </div>
                         )}
 
-                        <div className="leading-relaxed whitespace-pre-wrap select-text">
-                          {renderMessageBody(
-                            msg.content,
-                            true,
-                            currentUser?.name,
-                            assigneeNames
-                          )}
-                        </div>
+                        {/* Image Attachment Thumbnail */}
+                        {msg.imageUrl && (
+                          <div className="mb-1.5 pt-0.5">
+                            <img
+                              src={msg.imageUrl}
+                              alt="Lampiran foto"
+                              loading="lazy"
+                              onClick={() => setLightboxImageUrl(msg.imageUrl || null)}
+                              className="max-h-60 w-auto rounded-lg object-cover cursor-pointer border border-white/20 hover:opacity-95 transition-opacity shadow-xs"
+                            />
+                          </div>
+                        )}
+
+                        {msg.content && (
+                          <div className="leading-relaxed whitespace-pre-wrap select-text">
+                            {renderMessageBody(
+                              msg.content,
+                              true,
+                              currentUser?.name,
+                              assigneeNames
+                            )}
+                          </div>
+                        )}
                         <div className="flex items-center justify-end gap-1 text-[10px] text-blue-100/80 select-none pt-0.5">
                           <span>{formatChatTime(msg.createdAt)}</span>
                         </div>
@@ -873,19 +979,34 @@ export function ProjectDiscussionThread({
                               <span>{quotedAuthorName}</span>
                             </div>
                             <p className="line-clamp-1 italic text-[10px] text-muted-foreground mt-0.5">
-                              {quotedContent}
+                              {quotedDisplaySnippet}
                             </p>
                           </div>
                         )}
 
-                        <div>
-                          {renderMessageBody(
-                            msg.content,
-                            false,
-                            currentUser?.name,
-                            assigneeNames
-                          )}
-                        </div>
+                        {/* Image Attachment Thumbnail */}
+                        {msg.imageUrl && (
+                          <div className="mb-1.5 pt-0.5">
+                            <img
+                              src={msg.imageUrl}
+                              alt="Lampiran foto"
+                              loading="lazy"
+                              onClick={() => setLightboxImageUrl(msg.imageUrl || null)}
+                              className="max-h-60 w-auto rounded-lg object-cover cursor-pointer border border-black/10 hover:opacity-95 transition-opacity shadow-xs"
+                            />
+                          </div>
+                        )}
+
+                        {msg.content && (
+                          <div>
+                            {renderMessageBody(
+                              msg.content,
+                              false,
+                              currentUser?.name,
+                              assigneeNames
+                            )}
+                          </div>
+                        )}
                       </div>
                     </div>
 
@@ -1002,9 +1123,13 @@ export function ProjectDiscussionThread({
                 Membalas <strong className="font-semibold text-foreground">{replyingTo.senderName}</strong>:{" "}
                 <span className="italic opacity-90">
                   &ldquo;
-                  {replyingTo.content.length > 55
-                    ? `${replyingTo.content.substring(0, 52)}...`
-                    : replyingTo.content}
+                  {replyingTo.content
+                    ? replyingTo.content.length > 55
+                      ? `${replyingTo.content.substring(0, 52)}...`
+                      : replyingTo.content
+                    : replyingTo.imageUrl
+                    ? "📷 Foto"
+                    : "Pesan"}
                   &rdquo;
                 </span>
               </span>
@@ -1020,31 +1145,109 @@ export function ProjectDiscussionThread({
           </div>
         )}
 
+        {/* Compressing Image Indicator */}
+        {isCompressing && (
+          <div className="flex items-center gap-2 px-3 py-2 mb-2 rounded-xl bg-secondary/70 border border-border/70 text-xs text-muted-foreground animate-pulse">
+            <Loader2 className="h-4 w-4 animate-spin text-blue-500" />
+            <span>Mengompresi gambar (&lt; 500 KB)...</span>
+          </div>
+        )}
+
+        {/* Pre-Send Compressed Image Preview Bar */}
+        {attachedImage && !isCompressing && (
+          <div className="flex items-center justify-between gap-2 px-3 py-2 mb-2 rounded-xl bg-secondary/80 border border-border/70 text-xs animate-in fade-in slide-in-from-bottom-1">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <img
+                src={attachedImage.previewUrl}
+                alt="Lampiran"
+                onClick={() => setLightboxImageUrl(attachedImage.previewUrl)}
+                className="h-12 w-12 rounded-lg object-cover border border-border shrink-0 shadow-xs cursor-pointer hover:opacity-90 transition-opacity"
+              />
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="font-semibold text-foreground text-[11px] truncate max-w-[180px]">
+                    {attachedImage.file.name || "Gambar terlampir"}
+                  </span>
+                  <Badge className="bg-emerald-500/15 border border-emerald-500/30 text-emerald-600 dark:text-emerald-400 text-[10px] px-1.5 py-0 h-4 font-mono font-bold">
+                    {formatFileSize(attachedImage.size)}
+                  </Badge>
+                </div>
+                <p className="text-[10px] text-muted-foreground">Siap dikirim dengan kompresi otomatis</p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                if (attachedImage.previewUrl) URL.revokeObjectURL(attachedImage.previewUrl);
+                setAttachedImage(null);
+                if (fileInputRef.current) fileInputRef.current.value = "";
+              }}
+              className="h-6 w-6 rounded-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-background/80 transition-colors shrink-0 cursor-pointer"
+              title="Hapus gambar"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        )}
+
+        {/* Hidden File Input for Image Selection */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/png,image/jpeg,image/webp,image/jpg"
+          className="hidden"
+          onChange={handleFileSelect}
+        />
+
         <div className="flex items-end gap-2">
+          {/* Image Upload / Paperclip Button */}
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isSubmitting || isCompressing}
+            className="h-[42px] w-[42px] p-0 rounded-xl text-muted-foreground hover:text-foreground hover:bg-secondary shrink-0 cursor-pointer"
+            title="Lampirkan Gambar atau Screenshot (bisa juga langsung paste Ctrl+V)"
+          >
+            <ImageIcon className="h-4 w-4" />
+          </Button>
+
           <textarea
             ref={textareaRef}
             value={inputContent}
             onChange={handleInputChange}
             onKeyDown={handleKeyDown}
-            placeholder="Tulis pesan... ketik @ untuk menyebut PIC project (Enter kirim, Shift+Enter baris baru)"
+            onPaste={handlePaste}
+            placeholder="Tulis pesan... paste gambar screenshot atau ketik @ untuk mention"
             rows={1}
             className="flex-1 min-h-[42px] max-h-28 resize-none bg-background border border-border/70 rounded-xl px-3.5 py-2.5 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 transition-all custom-scrollbar"
           />
           <Button
             type="button"
             onClick={handleSendMessage}
-            disabled={!inputContent.trim()}
+            disabled={(!inputContent.trim() && !attachedImage) || isSubmitting || isCompressing}
             size="sm"
             className="h-[42px] px-3.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl gap-1.5 transition-all shadow-sm shrink-0 disabled:opacity-50 cursor-pointer"
           >
+            {isSubmitting ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Send className="h-3.5 w-3.5" />
+            )}
             <span className="hidden sm:inline text-xs font-medium">Kirim</span>
-            <Send className="h-3.5 w-3.5" />
           </Button>
         </div>
         <p className="text-[10px] text-muted-foreground mt-1.5 px-1 hidden sm:block">
-          Tekan <kbd className="font-mono bg-secondary px-1 py-0.5 rounded text-[9px] border border-border/60">Enter</kbd> untuk mengirim, <kbd className="font-mono bg-secondary px-1 py-0.5 rounded text-[9px] border border-border/60">Shift + Enter</kbd> untuk baris baru, <kbd className="font-mono bg-secondary px-1 py-0.5 rounded text-[9px] border border-border/60">@</kbd> untuk mention PIC.
+          Tekan <kbd className="font-mono bg-secondary px-1 py-0.5 rounded text-[9px] border border-border/60">Enter</kbd> untuk mengirim, <kbd className="font-mono bg-secondary px-1 py-0.5 rounded text-[9px] border border-border/60">Shift + Enter</kbd> baris baru, <kbd className="font-mono bg-secondary px-1 py-0.5 rounded text-[9px] border border-border/60">Ctrl+V</kbd> paste gambar langsung.
         </p>
       </div>
+
+      {/* Lightbox Modal */}
+      <ChatImageLightbox
+        src={lightboxImageUrl}
+        onClose={() => setLightboxImageUrl(null)}
+      />
     </div>
   );
 }

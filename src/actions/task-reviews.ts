@@ -22,11 +22,13 @@ export interface TaskChatMessageItem {
   id: string;
   taskId: string;
   userId: string;
-  content: string;
+  content: string | null;
+  imageUrl?: string | null;
   replyToId?: string | null;
   replyTo?: {
     id: string;
-    content: string;
+    content: string | null;
+    imageUrl?: string | null;
     userId: string;
     userName: string;
   } | null;
@@ -445,6 +447,7 @@ export async function getTaskMessagesAction(taskId: string, isPoll = false) {
             select: {
               id: true,
               content: true,
+              imageUrl: true,
               userId: true,
               user: {
                 select: {
@@ -464,12 +467,14 @@ export async function getTaskMessagesAction(taskId: string, isPoll = false) {
           id: m.id,
           taskId: m.taskId,
           userId: m.userId,
-          content: m.content,
+          content: m.content || "",
+          imageUrl: m.imageUrl || null,
           replyToId: m.replyToId,
           replyTo: m.replyTo
             ? {
                 id: m.replyTo.id,
-                content: m.replyTo.content,
+                content: m.replyTo.content || null,
+                imageUrl: (m.replyTo as any).imageUrl || null,
                 userId: m.replyTo.userId,
                 userName: m.replyTo.user?.name || "Member",
               }
@@ -549,6 +554,7 @@ export async function getTaskMessagesAction(taskId: string, isPoll = false) {
             select: {
               id: true,
               content: true,
+              imageUrl: true,
               userId: true,
               user: {
                 select: {
@@ -652,12 +658,14 @@ export async function getTaskMessagesAction(taskId: string, isPoll = false) {
         id: m.id,
         taskId: m.taskId,
         userId: m.userId,
-        content: m.content,
+        content: m.content || "",
+        imageUrl: m.imageUrl || null,
         replyToId: m.replyToId,
         replyTo: m.replyTo
           ? {
               id: m.replyTo.id,
-              content: m.replyTo.content,
+              content: m.replyTo.content || null,
+              imageUrl: (m.replyTo as any).imageUrl || null,
               userId: m.replyTo.userId,
               userName: m.replyTo.user?.name || "Member",
             }
@@ -680,14 +688,16 @@ export async function sendTaskMessageAction(
   taskId: string,
   content: string,
   replyToId?: string | null,
-  mentionedUserIds: string[] = []
+  mentionedUserIds: string[] = [],
+  imageUrl?: string | null
 ) {
   try {
     const currentUser = await getCurrentUser();
     if (!currentUser) return { success: false, error: "Unauthorized" };
 
     const trimmed = (content || "").trim();
-    if (!trimmed) return { success: false, error: "Pesan tidak boleh kosong" };
+    const hasImage = Boolean(imageUrl && imageUrl.trim());
+    if (!trimmed && !hasImage) return { success: false, error: "Pesan atau gambar tidak boleh kosong" };
     if (!taskId) return { success: false, error: "Task ID is required" };
 
     const [task, replyToMessage] = await Promise.all([
@@ -706,6 +716,7 @@ export async function sendTaskMessageAction(
               id: true,
               userId: true,
               content: true,
+              imageUrl: true,
               user: { select: { name: true } },
             },
           })
@@ -749,7 +760,8 @@ export async function sendTaskMessageAction(
       data: {
         taskId,
         userId: currentUser.id,
-        content: trimmed,
+        content: trimmed || null,
+        imageUrl: hasImage ? imageUrl!.trim() : null,
         replyToId: replyToMessage?.id || null,
         mentionedUserIds: sanitizedMentionedUserIds,
       },
@@ -769,6 +781,7 @@ export async function sendTaskMessageAction(
           select: {
             id: true,
             content: true,
+            imageUrl: true,
             userId: true,
             user: { select: { id: true, name: true } },
           },
@@ -801,6 +814,11 @@ export async function sendTaskMessageAction(
 
     if (recipientIds.length > 0) {
       const truncated = trimmed.length > 70 ? `${trimmed.substring(0, 67)}...` : trimmed;
+      const notifBody = hasImage
+        ? trimmed
+          ? `${currentUser.name}: 📷 ${truncated}`
+          : `${currentUser.name}: 📷 Mengirim foto`
+        : `${currentUser.name}: ${truncated}`;
       const targetUrl = `/dashboard?reviewTaskId=${taskId}`;
 
       const notifsData = recipientIds.map((rId) => {
@@ -815,7 +833,7 @@ export async function sendTaskMessageAction(
         return {
           userId: rId,
           title: pushTitle,
-          message: `${currentUser.name}: ${truncated}`,
+          message: notifBody,
           type: isMentionedOrReplied ? "TASK_CHAT_MENTION" : "TASK_CHAT",
           link: targetUrl,
         };
@@ -836,7 +854,7 @@ export async function sendTaskMessageAction(
 
         sendPushToUser(rId, {
           title: pushTitle,
-          body: `${currentUser.name}: ${truncated}`,
+          body: notifBody,
           url: targetUrl,
           icon: "/icon-192.png",
           badge: "/icon-192.png",
@@ -852,12 +870,14 @@ export async function sendTaskMessageAction(
         id: newMessage.id,
         taskId: newMessage.taskId,
         userId: newMessage.userId,
-        content: newMessage.content,
+        content: newMessage.content || "",
+        imageUrl: newMessage.imageUrl || null,
         replyToId: newMessage.replyToId,
         replyTo: newMessage.replyTo
           ? {
               id: newMessage.replyTo.id,
-              content: newMessage.replyTo.content,
+              content: newMessage.replyTo.content || null,
+              imageUrl: (newMessage.replyTo as any).imageUrl || null,
               userId: newMessage.replyTo.userId,
               userName: newMessage.replyTo.user?.name || "Member",
             }

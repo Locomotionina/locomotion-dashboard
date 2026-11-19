@@ -870,6 +870,7 @@ export async function getProjectMessagesAction(
             select: {
               id: true,
               content: true,
+              imageUrl: true,
               userId: true,
               user: {
                 select: {
@@ -891,12 +892,14 @@ export async function getProjectMessagesAction(
           id: m.id,
           projectId: m.projectId,
           userId: m.userId,
-          content: m.content,
+          content: m.content || "",
+          imageUrl: m.imageUrl || null,
           replyToId: m.replyToId,
           replyTo: m.replyTo
             ? {
                 id: m.replyTo.id,
-                content: m.replyTo.content,
+                content: m.replyTo.content || null,
+                imageUrl: (m.replyTo as any).imageUrl || null,
                 userId: m.replyTo.userId,
                 userName: m.replyTo.user?.name || "Member",
               }
@@ -937,6 +940,7 @@ export async function getProjectMessagesAction(
             select: {
               id: true,
               content: true,
+              imageUrl: true,
               userId: true,
               user: {
                 select: {
@@ -1019,12 +1023,14 @@ export async function getProjectMessagesAction(
         id: m.id,
         projectId: m.projectId,
         userId: m.userId,
-        content: m.content,
+        content: m.content || "",
+        imageUrl: m.imageUrl || null,
         replyToId: m.replyToId,
         replyTo: m.replyTo
           ? {
               id: m.replyTo.id,
-              content: m.replyTo.content,
+              content: m.replyTo.content || null,
+              imageUrl: (m.replyTo as any).imageUrl || null,
               userId: m.replyTo.userId,
               userName: m.replyTo.user?.name || "Member",
             }
@@ -1054,7 +1060,8 @@ export async function sendProjectMessageAction(
   projectId: string,
   content: string,
   replyToId?: string | null,
-  mentionedUserIds: string[] = []
+  mentionedUserIds: string[] = [],
+  imageUrl?: string | null
 ) {
   const currentUser = await getCurrentUser();
   if (!currentUser) {
@@ -1062,8 +1069,9 @@ export async function sendProjectMessageAction(
   }
 
   const trimmed = (content || "").trim();
-  if (!trimmed) {
-    return { success: false, error: "Pesan tidak boleh kosong." };
+  const hasImage = Boolean(imageUrl && imageUrl.trim());
+  if (!trimmed && !hasImage) {
+    return { success: false, error: "Pesan atau gambar tidak boleh kosong." };
   }
 
   if (!projectId) {
@@ -1084,6 +1092,7 @@ export async function sendProjectMessageAction(
               id: true,
               userId: true,
               content: true,
+              imageUrl: true,
               user: { select: { name: true } },
             },
           })
@@ -1140,7 +1149,8 @@ export async function sendProjectMessageAction(
       data: {
         projectId,
         userId: currentUser.id,
-        content: trimmed,
+        content: trimmed || null,
+        imageUrl: hasImage ? imageUrl!.trim() : null,
         replyToId: replyToMessage?.id || null,
         mentionedUserIds: sanitizedMentionedUserIds,
       },
@@ -1160,6 +1170,7 @@ export async function sendProjectMessageAction(
           select: {
             id: true,
             content: true,
+            imageUrl: true,
             userId: true,
             user: {
               select: {
@@ -1202,6 +1213,11 @@ export async function sendProjectMessageAction(
 
     if (recipientIds.length > 0) {
       const truncated = trimmed.length > 70 ? `${trimmed.substring(0, 67)}...` : trimmed;
+      const notifBody = hasImage
+        ? trimmed
+          ? `${currentUser.name}: 📷 ${truncated}`
+          : `${currentUser.name}: 📷 Mengirim foto`
+        : `${currentUser.name}: ${truncated}`;
       const targetUrl = `/projects?projectId=${projectId}`;
 
       // Batch in-app notifications in one single query
@@ -1217,7 +1233,7 @@ export async function sendProjectMessageAction(
         return {
           userId: recipientId,
           title: pushTitle,
-          message: `${currentUser.name}: ${truncated}`,
+          message: notifBody,
           type: isMentionedOrReplied ? "PROJECT_CHAT_MENTION" : "PROJECT_CHAT",
           link: targetUrl,
         };
@@ -1239,7 +1255,7 @@ export async function sendProjectMessageAction(
 
         sendPushToUser(recipientId, {
           title: pushTitle,
-          body: `${currentUser.name}: ${truncated}`,
+          body: notifBody,
           url: targetUrl,
           icon: "/icon-192.png",
           badge: "/icon-192.png",
@@ -1255,12 +1271,14 @@ export async function sendProjectMessageAction(
         id: newMessage.id,
         projectId: newMessage.projectId,
         userId: newMessage.userId,
-        content: newMessage.content,
+        content: newMessage.content || "",
+        imageUrl: newMessage.imageUrl || null,
         replyToId: newMessage.replyToId,
         replyTo: newMessage.replyTo
           ? {
               id: newMessage.replyTo.id,
-              content: newMessage.replyTo.content,
+              content: newMessage.replyTo.content || null,
+              imageUrl: (newMessage.replyTo as any).imageUrl || null,
               userId: newMessage.replyTo.userId,
               userName: newMessage.replyTo.user?.name || "Member",
             }
