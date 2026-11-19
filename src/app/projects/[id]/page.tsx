@@ -142,6 +142,8 @@ export default async function ProjectDetailPage({
         {/* Project In-App Discussion Thread */}
         <ProjectDiscussionThread
           projectId={project.id}
+          initialUnreadMessageCount={project.unreadMessageCount}
+          initialUnreadTagCount={project.unreadTagCount}
           initialUnreadCount={project.unreadMentionCount}
           assignees={project.pics}
           currentUser={

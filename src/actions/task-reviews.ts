@@ -573,17 +573,21 @@ export async function getTaskMessagesAction(taskId: string, isPoll = false) {
       return { success: false, error: "Task not found", messages: [], participants: [], unreadMentionCount: 0 };
     }
 
-    // Calculate unread mentions
+    // Calculate unread message and tag counts
     const lastRead = chatRead?.lastReadAt;
-    let unreadMentionCount = 0;
+    let unreadMessageCount = 0;
+    let unreadTagCount = 0;
     for (const m of messages) {
       if (m.userId !== currentUser.id) {
         const isUnread = !lastRead || m.createdAt > lastRead;
-        const isTagged =
-          (Array.isArray(m.mentionedUserIds) && m.mentionedUserIds.includes(currentUser.id)) ||
-          m.replyTo?.userId === currentUser.id;
-        if (isUnread && isTagged) {
-          unreadMentionCount++;
+        if (isUnread) {
+          unreadMessageCount++;
+          const isTagged =
+            (Array.isArray(m.mentionedUserIds) && m.mentionedUserIds.includes(currentUser.id)) ||
+            m.replyTo?.userId === currentUser.id;
+          if (isTagged) {
+            unreadTagCount++;
+          }
         }
       }
     }
@@ -652,7 +656,9 @@ export async function getTaskMessagesAction(taskId: string, isPoll = false) {
 
     return {
       success: true,
-      unreadMentionCount,
+      unreadMentionCount: unreadTagCount,
+      unreadMessageCount,
+      unreadTagCount,
       participants: Array.from(participantsMap.values()),
       messages: messages.map((m) => ({
         id: m.id,
@@ -968,19 +974,34 @@ export async function getTasksUnreadMentionsAction(taskIds: string[]) {
     chatReads.forEach((r) => readMap.set(r.taskId, r.lastReadAt));
 
     const counts: Record<string, number> = {};
+    const unreadInfo: Record<string, { unreadMessageCount: number; unreadTagCount: number }> = {};
+
+    for (const taskId of taskIds) {
+      unreadInfo[taskId] = { unreadMessageCount: 0, unreadTagCount: 0 };
+      counts[taskId] = 0;
+    }
+
     for (const m of unreadMessages) {
       const lastRead = readMap.get(m.taskId);
       const isUnread = !lastRead || m.createdAt > lastRead;
-      const isTagged =
-        (Array.isArray(m.mentionedUserIds) && m.mentionedUserIds.includes(currentUser.id)) ||
-        m.replyTo?.userId === currentUser.id;
+      if (isUnread) {
+        if (!unreadInfo[m.taskId]) {
+          unreadInfo[m.taskId] = { unreadMessageCount: 0, unreadTagCount: 0 };
+        }
+        unreadInfo[m.taskId].unreadMessageCount += 1;
 
-      if (isUnread && isTagged) {
-        counts[m.taskId] = (counts[m.taskId] || 0) + 1;
+        const isTagged =
+          (Array.isArray(m.mentionedUserIds) && m.mentionedUserIds.includes(currentUser.id)) ||
+          m.replyTo?.userId === currentUser.id;
+
+        if (isTagged) {
+          unreadInfo[m.taskId].unreadTagCount += 1;
+          counts[m.taskId] = (counts[m.taskId] || 0) + 1;
+        }
       }
     }
 
-    return { success: true, unreadCounts: counts };
+    return { success: true, unreadCounts: counts, unreadInfo };
   } catch (err: any) {
     console.error("Error fetching tasks unread mentions:", err);
     return { success: false, unreadCounts: {} };

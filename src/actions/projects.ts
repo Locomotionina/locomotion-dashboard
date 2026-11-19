@@ -49,8 +49,9 @@ export async function getProjects(filterStatus?: string) {
     orderBy: { updatedAt: "desc" },
   });
 
-  // Calculate unread mentions and replies for the current logged-in user
-  const unreadMentionCounts = new Map<string, number>();
+  // Calculate unread message and tag counts for the current logged-in user
+  const unreadMessageCounts = new Map<string, number>();
+  const unreadTagCounts = new Map<string, number>();
 
   if (currentUser) {
     try {
@@ -64,17 +65,15 @@ export async function getProjects(filterStatus?: string) {
         readMap.set(r.projectId, r.lastReadAt);
       }
 
-      // 2. Query all messages mentioning or replying to currentUser (excluding messages sent by currentUser)
+      // 2. Query all messages from other users
       const relevantMessages = await prisma.projectMessage.findMany({
         where: {
           userId: { not: currentUser.id },
-          OR: [
-            { mentionedUserIds: { has: currentUser.id } },
-            { replyTo: { userId: currentUser.id } },
-          ],
         },
         select: {
           projectId: true,
+          mentionedUserIds: true,
+          replyTo: { select: { userId: true } },
           createdAt: true,
         },
       });
@@ -82,14 +81,25 @@ export async function getProjects(filterStatus?: string) {
       for (const msg of relevantMessages) {
         const lastRead = readMap.get(msg.projectId);
         if (!lastRead || msg.createdAt > lastRead) {
-          unreadMentionCounts.set(
+          unreadMessageCounts.set(
             msg.projectId,
-            (unreadMentionCounts.get(msg.projectId) || 0) + 1
+            (unreadMessageCounts.get(msg.projectId) || 0) + 1
           );
+
+          const isTagged =
+            (Array.isArray(msg.mentionedUserIds) && msg.mentionedUserIds.includes(currentUser.id)) ||
+            msg.replyTo?.userId === currentUser.id;
+
+          if (isTagged) {
+            unreadTagCounts.set(
+              msg.projectId,
+              (unreadTagCounts.get(msg.projectId) || 0) + 1
+            );
+          }
         }
       }
     } catch (e) {
-      console.error("Failed to compute unreadMentionCounts:", e);
+      console.error("Failed to compute project unread counts:", e);
     }
   }
 
@@ -128,7 +138,9 @@ export async function getProjects(filterStatus?: string) {
       pics: Array.from(picMap.values()),
       activeTasksCount,
       doneTasksCount,
-      unreadMentionCount: unreadMentionCounts.get(p.id) || 0,
+      unreadMessageCount: unreadMessageCounts.get(p.id) || 0,
+      unreadTagCount: unreadTagCounts.get(p.id) || 0,
+      unreadMentionCount: unreadTagCounts.get(p.id) || 0,
     };
   });
 }
@@ -225,7 +237,8 @@ export async function getProjectById(id: string) {
     (a, b) => b.activeTasks - a.activeTasks
   );
 
-  let unreadMentionCount = 0;
+  let unreadMessageCount = 0;
+  let unreadTagCount = 0;
   const currentUser = await getCurrentUser();
   if (currentUser) {
     try {
@@ -239,26 +252,36 @@ export async function getProjectById(id: string) {
         select: { lastReadAt: true },
       });
 
-      unreadMentionCount = await prisma.projectMessage.count({
+      const unreadMessages = await prisma.projectMessage.findMany({
         where: {
           projectId: id,
           userId: { not: currentUser.id },
           ...(chatRead?.lastReadAt ? { createdAt: { gt: chatRead.lastReadAt } } : {}),
-          OR: [
-            { mentionedUserIds: { has: currentUser.id } },
-            { replyTo: { userId: currentUser.id } },
-          ],
+        },
+        select: {
+          id: true,
+          mentionedUserIds: true,
+          replyTo: { select: { userId: true } },
         },
       });
+
+      unreadMessageCount = unreadMessages.length;
+      unreadTagCount = unreadMessages.filter(
+        (m) =>
+          (Array.isArray(m.mentionedUserIds) && m.mentionedUserIds.includes(currentUser.id)) ||
+          m.replyTo?.userId === currentUser.id
+      ).length;
     } catch (e) {
-      console.error("Failed to compute project unreadMentionCount:", e);
+      console.error("Failed to compute project unread counts:", e);
     }
   }
 
   return {
     ...project,
     pics,
-    unreadMentionCount,
+    unreadMessageCount,
+    unreadTagCount,
+    unreadMentionCount: unreadTagCount,
   };
 }
 
@@ -776,10 +799,16 @@ export async function markProjectChatAsReadAction(projectId: string) {
  */
 export async function getUnreadMentionCountsAction() {
   const currentUser = await getCurrentUser();
-  if (!currentUser) return { success: false, counts: {} as Record<string, number> };
+  if (!currentUser) {
+    return {
+      success: false,
+      counts: {} as Record<string, number>,
+      unreadInfo: {} as Record<string, { unreadMessageCount: number; unreadTagCount: number }>,
+    };
+  }
 
   try {
-    const [chatReads, relevantMessages] = await Promise.all([
+    const [chatReads, allMessages] = await Promise.all([
       prisma.projectChatRead.findMany({
         where: { userId: currentUser.id },
         select: { projectId: true, lastReadAt: true },
@@ -787,13 +816,11 @@ export async function getUnreadMentionCountsAction() {
       prisma.projectMessage.findMany({
         where: {
           userId: { not: currentUser.id },
-          OR: [
-            { mentionedUserIds: { has: currentUser.id } },
-            { replyTo: { userId: currentUser.id } },
-          ],
         },
         select: {
           projectId: true,
+          mentionedUserIds: true,
+          replyTo: { select: { userId: true } },
           createdAt: true,
         },
       }),
@@ -805,17 +832,35 @@ export async function getUnreadMentionCountsAction() {
     }
 
     const counts: Record<string, number> = {};
-    for (const msg of relevantMessages) {
+    const unreadInfo: Record<string, { unreadMessageCount: number; unreadTagCount: number }> = {};
+
+    for (const msg of allMessages) {
       const lastRead = readMap.get(msg.projectId);
       if (!lastRead || msg.createdAt > lastRead) {
-        counts[msg.projectId] = (counts[msg.projectId] || 0) + 1;
+        if (!unreadInfo[msg.projectId]) {
+          unreadInfo[msg.projectId] = { unreadMessageCount: 0, unreadTagCount: 0 };
+        }
+        unreadInfo[msg.projectId].unreadMessageCount += 1;
+
+        const isTagged =
+          (Array.isArray(msg.mentionedUserIds) && msg.mentionedUserIds.includes(currentUser.id)) ||
+          msg.replyTo?.userId === currentUser.id;
+
+        if (isTagged) {
+          unreadInfo[msg.projectId].unreadTagCount += 1;
+          counts[msg.projectId] = (counts[msg.projectId] || 0) + 1;
+        }
       }
     }
 
-    return { success: true, counts };
+    return { success: true, counts, unreadInfo };
   } catch (err: any) {
     console.error("Failed to get unread mention counts:", err);
-    return { success: false, counts: {} as Record<string, number> };
+    return {
+      success: false,
+      counts: {} as Record<string, number>,
+      unreadInfo: {} as Record<string, { unreadMessageCount: number; unreadTagCount: number }>,
+    };
   }
 }
 
@@ -971,18 +1016,22 @@ export async function getProjectMessagesAction(
       }),
     ]);
 
-    // Calculate unread mentions in-memory without extra DB roundtrip
+    // Calculate unread message and tag counts in-memory without extra DB roundtrip
     const lastRead = chatRead?.lastReadAt;
-    let unreadMentionCount = 0;
+    let unreadMessageCount = 0;
+    let unreadTagCount = 0;
     for (const m of messages) {
       if (m.userId !== currentUser.id) {
         const isUnread = !lastRead || m.createdAt > lastRead;
-        const isTagged =
-          (Array.isArray(m.mentionedUserIds) &&
-            m.mentionedUserIds.includes(currentUser.id)) ||
-          m.replyTo?.userId === currentUser.id;
-        if (isUnread && isTagged) {
-          unreadMentionCount++;
+        if (isUnread) {
+          unreadMessageCount++;
+          const isTagged =
+            (Array.isArray(m.mentionedUserIds) &&
+              m.mentionedUserIds.includes(currentUser.id)) ||
+            m.replyTo?.userId === currentUser.id;
+          if (isTagged) {
+            unreadTagCount++;
+          }
         }
       }
     }
@@ -1017,7 +1066,9 @@ export async function getProjectMessagesAction(
 
     return {
       success: true,
-      unreadMentionCount,
+      unreadMentionCount: unreadTagCount,
+      unreadMessageCount,
+      unreadTagCount,
       assignees: Array.from(assigneesMap.values()),
       messages: messages.map((m) => ({
         id: m.id,

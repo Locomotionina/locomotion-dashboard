@@ -33,6 +33,7 @@ import {
   formatFileSize,
 } from "@/lib/image-compression";
 import { ChatImageLightbox } from "@/components/ChatImageLightbox";
+import { ChatUnreadBadge } from "@/components/ChatUnreadBadge";
 
 export interface ProjectChatMessage {
   id: string;
@@ -83,6 +84,8 @@ export interface ProjectDiscussionThreadProps {
   } | null;
   className?: string;
   initialUnreadCount?: number;
+  initialUnreadMessageCount?: number;
+  initialUnreadTagCount?: number;
   onChatRead?: (projectId: string) => void;
   assignees?: ProjectAssignee[];
 }
@@ -201,6 +204,8 @@ export function ProjectDiscussionThread({
   currentUser,
   className,
   initialUnreadCount = 0,
+  initialUnreadMessageCount,
+  initialUnreadTagCount,
   onChatRead,
   assignees: initialAssignees,
 }: ProjectDiscussionThreadProps) {
@@ -240,27 +245,40 @@ export function ProjectDiscussionThread({
   const [selectedMentionIndex, setSelectedMentionIndex] = useState(0);
   const [mentionedUserIds, setMentionedUserIds] = useState<string[]>([]);
 
-  // Unread badge count
-  const [unreadCount, setUnreadCount] = useState<number>(initialUnreadCount);
+  // Combined Unread Counts (Total Unread Messages + Unread Tags/Mentions)
+  const [unreadMessageCount, setUnreadMessageCount] = useState<number>(
+    initialUnreadMessageCount ?? initialUnreadCount ?? 0
+  );
+  const [unreadTagCount, setUnreadTagCount] = useState<number>(
+    initialUnreadTagCount ?? initialUnreadCount ?? 0
+  );
 
-  // Sync unreadCount if prop updates
+  // Sync if props update
   useEffect(() => {
-    if (initialUnreadCount !== undefined && initialUnreadCount > 0) {
-      setUnreadCount(initialUnreadCount);
+    if (initialUnreadMessageCount !== undefined) {
+      setUnreadMessageCount(initialUnreadMessageCount);
+    } else if (initialUnreadCount !== undefined) {
+      setUnreadMessageCount(initialUnreadCount);
     }
-  }, [initialUnreadCount]);
+  }, [initialUnreadMessageCount, initialUnreadCount]);
 
-  // Auto-clear badge timer: smoothly clear after 2.5 seconds upon viewing
   useEffect(() => {
-    if (unreadCount > 0) {
-      const timer = setTimeout(() => {
-        setUnreadCount(0);
-        onChatRead?.(projectId);
-        markProjectChatAsReadAction(projectId).catch(() => {});
-      }, 2500);
-      return () => clearTimeout(timer);
+    if (initialUnreadTagCount !== undefined) {
+      setUnreadTagCount(initialUnreadTagCount);
+    } else if (initialUnreadCount !== undefined) {
+      setUnreadTagCount(initialUnreadCount);
     }
-  }, [projectId, unreadCount, onChatRead]);
+  }, [initialUnreadTagCount, initialUnreadCount]);
+
+  // Auto-Reset on View / Mount: immediately mark read in DB and reset local unread counters
+  useEffect(() => {
+    if (projectId && currentUser) {
+      markProjectChatAsReadAction(projectId).catch(() => {});
+      onChatRead?.(projectId);
+      setUnreadMessageCount(0);
+      setUnreadTagCount(0);
+    }
+  }, [projectId, currentUser, onChatRead]);
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -319,7 +337,8 @@ export function ProjectDiscussionThread({
           }
 
           if (res.unreadMentionCount !== undefined && !isBackground) {
-            setUnreadCount(res.unreadMentionCount);
+            setUnreadTagCount(res.unreadTagCount ?? res.unreadMentionCount);
+            setUnreadMessageCount(res.unreadMessageCount ?? res.unreadMentionCount);
             if (res.unreadMentionCount > 0) {
               setTimeout(() => {
                 onChatRead?.(projectId);
@@ -407,14 +426,15 @@ export function ProjectDiscussionThread({
                 return [...prev, incomingMsg];
               });
 
-              // Instantly trigger tag badge if tagged by someone else
+              // Instantly update unread message & tag counts if sent by someone else
               if (currentUser?.id && incomingMsg.userId !== currentUser.id) {
+                setUnreadMessageCount((prev) => prev + 1);
                 const isTagged =
                   (Array.isArray(incomingMsg.mentionedUserIds) &&
                     incomingMsg.mentionedUserIds.includes(currentUser.id)) ||
                   incomingMsg.replyTo?.userId === currentUser.id;
                 if (isTagged) {
-                  setUnreadCount((prev) => prev + 1);
+                  setUnreadTagCount((prev) => prev + 1);
                 }
               }
 
@@ -621,8 +641,9 @@ export function ProjectDiscussionThread({
     }, 10);
 
     // Auto-clear unread badge if any
-    if (unreadCount > 0) {
-      setUnreadCount(0);
+    if (unreadMessageCount > 0 || unreadTagCount > 0) {
+      setUnreadMessageCount(0);
+      setUnreadTagCount(0);
       onChatRead?.(projectId);
     }
 
@@ -765,16 +786,11 @@ export function ProjectDiscussionThread({
                 {messages.length} pesan
               </Badge>
 
-              {/* Unread Mention / Reply Indicator Badge on the Header */}
-              {unreadCount > 0 && (
-                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/15 border border-amber-500/35 text-amber-600 dark:text-amber-400 shadow-xs animate-pulse">
-                  <span className="relative flex h-1.5 w-1.5">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
-                    <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-amber-500" />
-                  </span>
-                  <span>@ Di-tag ({unreadCount})</span>
-                </span>
-              )}
+              {/* Combined Unread Message + Tag Indicator Badge on the Header */}
+              <ChatUnreadBadge
+                unreadMessageCount={unreadMessageCount}
+                unreadTagCount={unreadTagCount}
+              />
             </div>
             <p className="text-[10px] text-muted-foreground hidden sm:block">
               Thread komunikasi khusus PIC & anggota tim yang ditugaskan

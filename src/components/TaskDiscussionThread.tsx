@@ -34,6 +34,7 @@ import {
   formatFileSize,
 } from "@/lib/image-compression";
 import { ChatImageLightbox } from "@/components/ChatImageLightbox";
+import { ChatUnreadBadge } from "@/components/ChatUnreadBadge";
 
 export interface TaskDiscussionThreadProps {
   taskId: string;
@@ -161,6 +162,8 @@ export function TaskDiscussionThread({
   const [isSending, setIsSending] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [unreadMessageCount, setUnreadMessageCount] = useState(0);
+  const [unreadTagCount, setUnreadTagCount] = useState(0);
   const [replyingTo, setReplyingTo] = useState<{
     id: string;
     senderName: string;
@@ -240,6 +243,8 @@ export function TaskDiscussionThread({
 
           if (res.unreadMentionCount !== undefined && !isBackground) {
             setUnreadCount(res.unreadMentionCount);
+            setUnreadTagCount(res.unreadTagCount ?? res.unreadMentionCount);
+            setUnreadMessageCount(res.unreadMessageCount ?? res.unreadMentionCount);
             onUnreadCountChange?.(res.unreadMentionCount);
           }
 
@@ -466,8 +471,10 @@ export function TaskDiscussionThread({
 
     setTimeout(() => textareaRef.current?.focus(), 10);
 
-    if (unreadCount > 0) {
+    if (unreadCount > 0 || unreadMessageCount > 0) {
       setUnreadCount(0);
+      setUnreadMessageCount(0);
+      setUnreadTagCount(0);
       onUnreadCountChange?.(0);
     }
 
@@ -569,11 +576,10 @@ export function TaskDiscussionThread({
           <Badge variant="outline" className="text-[10px] h-4 px-1.5 font-normal">
             {messages.length}
           </Badge>
-          {unreadCount > 0 && (
-            <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-amber-500/15 border border-amber-500/30 text-amber-600 dark:text-amber-400 animate-pulse">
-              @{unreadCount}
-            </span>
-          )}
+          <ChatUnreadBadge
+            unreadMessageCount={unreadMessageCount}
+            unreadTagCount={unreadTagCount}
+          />
         </div>
         <div className="flex items-center gap-1.5 text-[10px] text-emerald-600 dark:text-emerald-400 font-medium bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full">
           <span className="relative flex h-1.5 w-1.5">

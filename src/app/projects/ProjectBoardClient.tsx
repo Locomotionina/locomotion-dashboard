@@ -39,10 +39,11 @@ import {
 } from "lucide-react";
 import { formatDate, formatRelativeDays, renderTextWithLinks } from "@/lib/utils";
 import { canDeleteProject } from "@/lib/departments";
-import { deleteProjectAction, getUnreadMentionCountsAction } from "@/actions/projects";
+import { deleteProjectAction, getUnreadMentionCountsAction, markProjectChatAsReadAction } from "@/actions/projects";
 import { getSupabaseBrowserClient, LOCOMOTION_PROJECT_CHAT_GLOBAL_CHANNEL } from "@/lib/supabase";
 import { MiniCalendarRangePicker } from "./MiniCalendarRangePicker";
 import { ProjectDiscussionThread } from "@/components/ProjectDiscussionThread";
+import { ChatUnreadBadge } from "@/components/ChatUnreadBadge";
 
 interface ProjectItem {
   id: string;
@@ -64,6 +65,8 @@ interface ProjectItem {
   activeTasksCount: number;
   doneTasksCount: number;
   unreadMentionCount?: number;
+  unreadMessageCount?: number;
+  unreadTagCount?: number;
   pics: {
     id: string;
     name: string;
@@ -185,7 +188,20 @@ export function ProjectBoardClient({
     }
   };
 
-  // Unread mention counts tracked per project
+  // Unread info (total messages + tags) tracked per project
+  const [unreadInfo, setUnreadInfo] = useState<
+    Record<string, { unreadMessageCount: number; unreadTagCount: number }>
+  >(() => {
+    const initial: Record<string, { unreadMessageCount: number; unreadTagCount: number }> = {};
+    projects.forEach((p) => {
+      initial[p.id] = {
+        unreadMessageCount: p.unreadMessageCount ?? 0,
+        unreadTagCount: p.unreadTagCount ?? p.unreadMentionCount ?? 0,
+      };
+    });
+    return initial;
+  });
+
   const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>(() => {
     const initial: Record<string, number> = {};
     projects.forEach((p) => {
@@ -197,10 +213,15 @@ export function ProjectBoardClient({
   });
 
   const handleChatRead = useCallback((projectId: string) => {
+    setUnreadInfo((prev) => ({
+      ...prev,
+      [projectId]: { unreadMessageCount: 0, unreadTagCount: 0 },
+    }));
     setUnreadCounts((prev) => {
       if (!prev[projectId]) return prev;
       return { ...prev, [projectId]: 0 };
     });
+    markProjectChatAsReadAction(projectId).catch(() => {});
   }, []);
 
   // Detail project ref to prevent stale closures in realtime events
@@ -259,11 +280,13 @@ export function ProjectBoardClient({
     const syncCounts = async () => {
       try {
         const res = await getUnreadMentionCountsAction();
-        if (res.success && res.counts) {
-          setUnreadCounts((prev) => ({
-            ...prev,
-            ...res.counts,
-          }));
+        if (res.success) {
+          if (res.unreadInfo) {
+            setUnreadInfo(res.unreadInfo);
+          }
+          if (res.counts) {
+            setUnreadCounts(res.counts);
+          }
         }
       } catch (e) {
         console.error("Failed syncing unread counts:", e);
@@ -714,30 +737,16 @@ export function ProjectBoardClient({
                       {/* Prominent Remaining Days Countdown Indicator at the top */}
                       {renderCountdownBadge(project.deadline)}
 
-                      {/* Location 1: Front Face Unread Mention / Reply Indicator Badge */}
-                      {((unreadCounts[project.id] ?? project.unreadMentionCount ?? 0) > 0) && (
-                        <span
-                          role="button"
-                          tabIndex={0}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setDetailProject(project);
-                          }}
-                          className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-500/15 border border-amber-500/35 text-amber-600 dark:text-amber-400 shadow-xs animate-pulse cursor-pointer hover:bg-amber-500/25 transition-all"
-                          title={`${unreadCounts[project.id] ?? project.unreadMentionCount} mention atau balasan belum dibaca`}
-                        >
-                          <span className="relative flex h-2 w-2">
-                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
-                            <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500" />
-                          </span>
-                          <span>
-                            @ Kamu di-tag
-                            {(unreadCounts[project.id] ?? project.unreadMentionCount ?? 0) > 1
-                              ? ` (${unreadCounts[project.id] ?? project.unreadMentionCount})`
-                              : ""}
-                          </span>
-                        </span>
-                      )}
+                      {/* Location 1: Front Face Combined Unread Message + Tag Indicator Badge */}
+                      <ChatUnreadBadge
+                        unreadMessageCount={unreadInfo[project.id]?.unreadMessageCount ?? project.unreadMessageCount ?? 0}
+                        unreadTagCount={unreadInfo[project.id]?.unreadTagCount ?? project.unreadTagCount ?? project.unreadMentionCount ?? 0}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleChatRead(project.id);
+                          setDetailProject(project);
+                        }}
+                      />
                     </div>
                     {getStatusBadge(project.status)}
                   </div>
@@ -1039,6 +1048,8 @@ export function ProjectBoardClient({
                     <ProjectDiscussionThread
                       projectId={detailProject.id}
                       currentUser={currentUser}
+                      initialUnreadMessageCount={unreadInfo[detailProject.id]?.unreadMessageCount ?? detailProject.unreadMessageCount ?? 0}
+                      initialUnreadTagCount={unreadInfo[detailProject.id]?.unreadTagCount ?? detailProject.unreadTagCount ?? detailProject.unreadMentionCount ?? 0}
                       initialUnreadCount={unreadCounts[detailProject.id] ?? detailProject.unreadMentionCount ?? 0}
                       onChatRead={handleChatRead}
                       assignees={detailProject.pics}

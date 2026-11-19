@@ -666,7 +666,7 @@ export function AutomatedPICRoster({ pics, tasks }: AutomatedPICRosterProps) {
 
               {/* Review Callout if In Review */}
               {selectedTask.status === "In Review" && (
-                <div className="rounded-xl border border-purple-500/30 bg-purple-500/10 p-3 space-y-2 text-xs">
+                <div className="rounded-xl border border-purple-500/30 bg-purple-500/10 p-3 space-y-1.5 text-xs">
                   <div className="flex items-center justify-between font-bold text-purple-700 dark:text-purple-300">
                     <span className="flex items-center gap-1.5">
                       <Eye className="h-4 w-4 shrink-0" />
@@ -676,11 +676,6 @@ export function AutomatedPICRoster({ pics, tasks }: AutomatedPICRosterProps) {
                       Reviewer: {selectedTask.reviewer?.name || "Belum Ditentukan"}
                     </span>
                   </div>
-                  {selectedTask.previewDescription && (
-                    <div className="bg-card/90 p-2.5 rounded-lg border border-purple-500/20 text-foreground italic text-xs leading-relaxed max-h-36 overflow-y-auto whitespace-pre-wrap break-words custom-scrollbar">
-                      &ldquo;{renderTextWithLinks(selectedTask.previewDescription)}&rdquo;
-                    </div>
-                  )}
                 </div>
               )}
 
