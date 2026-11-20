@@ -30,6 +30,7 @@ import {
   ShieldAlert,
   Users,
   Sparkles,
+  Video,
 } from "lucide-react";
 
 interface NavbarProps {
@@ -77,6 +78,11 @@ export function Navbar({ user }: NavbarProps) {
       label: "Staff Workspace",
       href: "/dashboard",
       icon: CheckSquare,
+    },
+    {
+      label: "Video Tutorial",
+      href: "/tutorial",
+      icon: Video,
     },
     ...(user.role === "ADMIN"
       ? [
