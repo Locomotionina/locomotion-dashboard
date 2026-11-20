@@ -330,7 +330,7 @@ export async function uploadAvatarToStorage(
   const { uploadAvatarAction } = await import("@/actions/auth");
   const res = await uploadAvatarAction(formData);
   if (!res.success || !res.url) {
-    throw new Error(res.error || "Gagal mengunggah foto profil ke Supabase Storage.");
+    throw new Error(res.error || "Gagal mengunggah foto profil.");
   }
 
   return res.url;
