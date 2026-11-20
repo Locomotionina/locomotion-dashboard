@@ -1358,93 +1358,6 @@ export async function getStaffDashboardData(targetUserId?: string) {
     currentUser.role === "ADMIN" ||
     (currentUser.position && currentUser.position.toLowerCase().includes("project manager"));
 
-  const TASK_CARD_SELECT = {
-    id: true,
-    title: true,
-    description: true,
-    taskOutputType: true,
-    status: true,
-    priority: true,
-    dueDate: true,
-    estimatedHours: true,
-    initialSeconds: true,
-    totalSeconds: true,
-    timerActive: true,
-    timerStartedAt: true,
-    currentPhase: true,
-    currentRevisionRound: true,
-    completedAt: true,
-    userId: true,
-    createdById: true,
-    reviewerId: true,
-    reviewerIds: true,
-    deliverableLink: true,
-    previewDescription: true,
-    folderId: true,
-    projectId: true,
-    createdAt: true,
-    updatedAt: true,
-    project: {
-      select: {
-        id: true,
-        name: true,
-        clientName: true,
-        code: true,
-        status: true,
-      },
-    },
-    folder: {
-      select: {
-        id: true,
-        name: true,
-      },
-    },
-    revisions: {
-      select: {
-        id: true,
-        taskId: true,
-        round: true,
-        feedback: true,
-        authorId: true,
-        authorName: true,
-        seconds: true,
-        timerActive: true,
-        timerStartedAt: true,
-        status: true,
-        createdAt: true,
-        deliveredAt: true,
-      },
-      orderBy: { round: "asc" as const },
-    },
-    createdBy: {
-      select: {
-        id: true,
-        name: true,
-        position: true,
-        department: true,
-        avatarUrl: true,
-      },
-    },
-    reviewer: {
-      select: {
-        id: true,
-        name: true,
-        position: true,
-        department: true,
-        avatarUrl: true,
-      },
-    },
-    user: {
-      select: {
-        id: true,
-        name: true,
-        position: true,
-        department: true,
-        avatarUrl: true,
-      },
-    },
-  } as const;
-
   // Parallel query execution with Promise.all for maximum speed & responsiveness
   const [
     activeTasks,
@@ -1463,7 +1376,44 @@ export async function getStaffDashboardData(targetUserId?: string) {
         userId,
         status: { in: ["To Do", "On Progress", "In Review", "Revision"] },
       },
-      select: TASK_CARD_SELECT,
+      include: {
+        project: {
+          select: {
+            id: true,
+            name: true,
+            clientName: true,
+            code: true,
+            status: true,
+          },
+        },
+        folder: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+        revisions: {
+          orderBy: { round: "asc" },
+        },
+        createdBy: {
+          select: {
+            id: true,
+            name: true,
+            position: true,
+            department: true,
+            avatarUrl: true,
+          },
+        },
+        reviewer: {
+          select: {
+            id: true,
+            name: true,
+            position: true,
+            department: true,
+            avatarUrl: true,
+          },
+        },
+      },
       orderBy: [
         { priority: "desc" },
         { dueDate: "asc" },
@@ -1478,7 +1428,44 @@ export async function getStaffDashboardData(targetUserId?: string) {
         status: "Done",
       },
       take: 30,
-      select: TASK_CARD_SELECT,
+      include: {
+        project: {
+          select: {
+            id: true,
+            name: true,
+            clientName: true,
+            code: true,
+            status: true,
+          },
+        },
+        folder: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+        revisions: {
+          orderBy: { round: "asc" },
+        },
+        createdBy: {
+          select: {
+            id: true,
+            name: true,
+            position: true,
+            department: true,
+            avatarUrl: true,
+          },
+        },
+        reviewer: {
+          select: {
+            id: true,
+            name: true,
+            position: true,
+            department: true,
+            avatarUrl: true,
+          },
+        },
+      },
       orderBy: { completedAt: "desc" },
     }),
 
@@ -1488,7 +1475,44 @@ export async function getStaffDashboardData(targetUserId?: string) {
         createdById: userId,
         userId: { not: userId },
       },
-      select: TASK_CARD_SELECT,
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            position: true,
+            department: true,
+            avatarUrl: true,
+          },
+        },
+        reviewer: {
+          select: {
+            id: true,
+            name: true,
+            position: true,
+            department: true,
+            avatarUrl: true,
+          },
+        },
+        project: {
+          select: {
+            id: true,
+            name: true,
+            clientName: true,
+            code: true,
+            status: true,
+          },
+        },
+        folder: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+        revisions: {
+          orderBy: { round: "asc" },
+        },
+      },
       orderBy: [
         { updatedAt: "desc" },
         { createdAt: "desc" },
@@ -1503,7 +1527,53 @@ export async function getStaffDashboardData(targetUserId?: string) {
           { reviewerIds: { contains: userId } },
         ],
       },
-      select: TASK_CARD_SELECT,
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            position: true,
+            department: true,
+            avatarUrl: true,
+          },
+        },
+        createdBy: {
+          select: {
+            id: true,
+            name: true,
+            position: true,
+            department: true,
+            avatarUrl: true,
+          },
+        },
+        reviewer: {
+          select: {
+            id: true,
+            name: true,
+            position: true,
+            department: true,
+            avatarUrl: true,
+          },
+        },
+        project: {
+          select: {
+            id: true,
+            name: true,
+            clientName: true,
+            code: true,
+            status: true,
+          },
+        },
+        folder: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+        revisions: {
+          orderBy: { round: "asc" },
+        },
+      },
       orderBy: [
         { updatedAt: "desc" },
         { createdAt: "desc" },
@@ -1552,7 +1622,47 @@ export async function getStaffDashboardData(targetUserId?: string) {
     // 8. Agency-Wide Project Tasks (for Admin / Project Manager)
     isPrivileged
       ? prisma.task.findMany({
-          select: TASK_CARD_SELECT,
+          include: {
+            project: {
+              select: {
+                id: true,
+                name: true,
+                clientName: true,
+                code: true,
+                status: true,
+              },
+            },
+            user: {
+              select: {
+                id: true,
+                name: true,
+                position: true,
+                department: true,
+                avatarUrl: true,
+              },
+            },
+            createdBy: {
+              select: {
+                id: true,
+                name: true,
+                position: true,
+                department: true,
+                avatarUrl: true,
+              },
+            },
+            reviewer: {
+              select: {
+                id: true,
+                name: true,
+                position: true,
+                department: true,
+                avatarUrl: true,
+              },
+            },
+            revisions: {
+              orderBy: { round: "asc" },
+            },
+          },
           orderBy: [
             { updatedAt: "desc" },
             { createdAt: "desc" },
@@ -1563,13 +1673,7 @@ export async function getStaffDashboardData(targetUserId?: string) {
     // 9. Folders
     prisma.taskFolder.findMany({
       where: { userId },
-      select: {
-        id: true,
-        name: true,
-        userId: true,
-        projectId: true,
-        createdAt: true,
-        updatedAt: true,
+      include: {
         project: {
           select: {
             id: true,

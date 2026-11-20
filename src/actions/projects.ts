@@ -17,22 +17,10 @@ export async function getProjects(filterStatus?: string) {
     whereClause.status = filterStatus;
   }
 
-  // Lean column selection: avoids transferring heavy text fields (brief, goals, description)
-  // or deliverables arrays across PostgreSQL egress for project board cards
   const projects = await prisma.project.findMany({
     where: whereClause,
-    select: {
-      id: true,
-      code: true,
-      name: true,
-      clientName: true,
-      status: true,
-      priority: true,
-      category: true,
-      startDate: true,
-      deadline: true,
-      createdAt: true,
-      updatedAt: true,
+    include: {
+      deliverables: true,
       tasks: {
         select: {
           id: true,
@@ -173,10 +161,28 @@ export async function getProjectById(id: string) {
         orderBy: { createdAt: "desc" },
       },
       tasks: {
-        select: {
-          id: true,
-          status: true,
+        include: {
           user: {
+            select: {
+              id: true,
+              name: true,
+              username: true,
+              position: true,
+              department: true,
+              avatarUrl: true,
+            },
+          },
+          createdBy: {
+            select: {
+              id: true,
+              name: true,
+              username: true,
+              position: true,
+              department: true,
+              avatarUrl: true,
+            },
+          },
+          reviewer: {
             select: {
               id: true,
               name: true,
