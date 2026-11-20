@@ -166,6 +166,17 @@ export async function getNotificationsAction() {
     const [notifications, unreadCount] = await Promise.all([
       prisma.notification.findMany({
         where: { userId: currentUser.id },
+        select: {
+          id: true,
+          userId: true,
+          title: true,
+          message: true,
+          type: true,
+          link: true,
+          taskId: true,
+          read: true,
+          createdAt: true,
+        },
         orderBy: { createdAt: "desc" },
         take: 30,
       }),

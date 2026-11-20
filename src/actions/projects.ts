@@ -17,10 +17,22 @@ export async function getProjects(filterStatus?: string) {
     whereClause.status = filterStatus;
   }
 
+  // Lean column selection: avoids transferring heavy text fields (brief, goals, description)
+  // or deliverables arrays across PostgreSQL egress for project board cards
   const projects = await prisma.project.findMany({
     where: whereClause,
-    include: {
-      deliverables: true,
+    select: {
+      id: true,
+      code: true,
+      name: true,
+      clientName: true,
+      status: true,
+      priority: true,
+      category: true,
+      startDate: true,
+      deadline: true,
+      createdAt: true,
+      updatedAt: true,
       tasks: {
         select: {
           id: true,
@@ -53,11 +65,17 @@ export async function getProjects(filterStatus?: string) {
   const unreadMessageCounts = new Map<string, number>();
   const unreadTagCounts = new Map<string, number>();
 
-  if (currentUser) {
+  if (currentUser && projects.length > 0) {
     try {
-      // 1. Fetch user's chat read timestamps for all projects
+      const projectIds = projects.map((p) => p.id);
+      const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+
+      // 1. Fetch user's chat read timestamps for these specific projects
       const chatReads = await prisma.projectChatRead.findMany({
-        where: { userId: currentUser.id },
+        where: {
+          userId: currentUser.id,
+          projectId: { in: projectIds },
+        },
         select: { projectId: true, lastReadAt: true },
       });
       const readMap = new Map<string, Date>();
@@ -65,10 +83,12 @@ export async function getProjects(filterStatus?: string) {
         readMap.set(r.projectId, r.lastReadAt);
       }
 
-      // 2. Query all messages from other users
+      // 2. Query only messages from other users in displayed projects within the last 30 days
       const relevantMessages = await prisma.projectMessage.findMany({
         where: {
+          projectId: { in: projectIds },
           userId: { not: currentUser.id },
+          createdAt: { gte: thirtyDaysAgo },
         },
         select: {
           projectId: true,
@@ -153,28 +173,10 @@ export async function getProjectById(id: string) {
         orderBy: { createdAt: "desc" },
       },
       tasks: {
-        include: {
+        select: {
+          id: true,
+          status: true,
           user: {
-            select: {
-              id: true,
-              name: true,
-              username: true,
-              position: true,
-              department: true,
-              avatarUrl: true,
-            },
-          },
-          createdBy: {
-            select: {
-              id: true,
-              name: true,
-              username: true,
-              position: true,
-              department: true,
-              avatarUrl: true,
-            },
-          },
-          reviewer: {
             select: {
               id: true,
               name: true,
@@ -808,6 +810,7 @@ export async function getUnreadMentionCountsAction() {
   }
 
   try {
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
     const [chatReads, allMessages] = await Promise.all([
       prisma.projectChatRead.findMany({
         where: { userId: currentUser.id },
@@ -816,6 +819,7 @@ export async function getUnreadMentionCountsAction() {
       prisma.projectMessage.findMany({
         where: {
           userId: { not: currentUser.id },
+          createdAt: { gte: thirtyDaysAgo },
         },
         select: {
           projectId: true,
@@ -864,14 +868,24 @@ export async function getUnreadMentionCountsAction() {
   }
 }
 
+export interface GetProjectMessagesOptions {
+  isPoll?: boolean;
+  afterTimestamp?: string | null;
+  beforeTimestamp?: string | null;
+  limit?: number;
+}
+
 /**
- * Fetch all chat messages for a specific project ordered by creation time ascending,
- * including quote replies, tagged assignees list, and auto-clearing unread badge.
- * Optimized with Promise.all and lightweight background polling mode.
+ * Fetch chat messages for a specific project ordered by creation time ascending.
+ * Supports:
+ * 1. Initial Load: Capped at latest 40 messages to prevent heavy initial payload.
+ * 2. Delta Polling: WHERE created_at > latest_loaded_timestamp to transmit zero bytes when idle.
+ * 3. History Pagination: WHERE created_at < earliest_loaded_timestamp for "Muat pesan sebelumnya".
+ * 4. Explicit Lean Column Selection: Strictly selects only required fields to minimize PostgreSQL Egress.
  */
 export async function getProjectMessagesAction(
   projectId: string,
-  isPoll = false
+  optionsOrIsPoll: boolean | GetProjectMessagesOptions = false
 ) {
   const currentUser = await getCurrentUser();
   if (!currentUser) {
@@ -881,6 +895,7 @@ export async function getProjectMessagesAction(
       messages: [],
       assignees: [],
       unreadMentionCount: 0,
+      hasMore: false,
     };
   }
 
@@ -891,41 +906,61 @@ export async function getProjectMessagesAction(
       messages: [],
       assignees: [],
       unreadMentionCount: 0,
+      hasMore: false,
     };
   }
 
-  try {
-    // If this is a background polling tick, run ONLY the messages query
-    if (isPoll) {
-      const messages = await prisma.projectMessage.findMany({
-        where: { projectId },
-        include: {
-          user: {
-            select: {
-              id: true,
-              name: true,
-              username: true,
-              role: true,
-              position: true,
-              department: true,
-              avatarUrl: true,
-            },
-          },
-          replyTo: {
-            select: {
-              id: true,
-              content: true,
-              imageUrl: true,
-              userId: true,
-              user: {
-                select: {
-                  id: true,
-                  name: true,
-                },
-              },
-            },
+  const isPoll = typeof optionsOrIsPoll === "boolean" ? optionsOrIsPoll : !!optionsOrIsPoll?.isPoll;
+  const afterTimestamp = typeof optionsOrIsPoll === "object" ? optionsOrIsPoll.afterTimestamp : null;
+  const beforeTimestamp = typeof optionsOrIsPoll === "object" ? optionsOrIsPoll.beforeTimestamp : null;
+  const limit = typeof optionsOrIsPoll === "object" && optionsOrIsPoll.limit ? optionsOrIsPoll.limit : 40;
+
+  // Lean column selection for ProjectMessage to avoid Supabase DB egress spikes
+  const messageSelect = {
+    id: true,
+    projectId: true,
+    userId: true,
+    content: true,
+    imageUrl: true,
+    replyToId: true,
+    mentionedUserIds: true,
+    createdAt: true,
+    user: {
+      select: {
+        id: true,
+        name: true,
+        username: true,
+        role: true,
+        position: true,
+        department: true,
+        avatarUrl: true,
+      },
+    },
+    replyTo: {
+      select: {
+        id: true,
+        content: true,
+        imageUrl: true,
+        userId: true,
+        user: {
+          select: {
+            id: true,
+            name: true,
           },
         },
+      },
+    },
+  };
+
+  try {
+    // 1. Delta Polling: WHERE created_at > latest_loaded_timestamp (fetches ONLY new messages)
+    if (afterTimestamp) {
+      const deltaMessages = await prisma.projectMessage.findMany({
+        where: {
+          projectId,
+          createdAt: { gt: new Date(afterTimestamp) },
+        },
+        select: messageSelect,
         orderBy: { createdAt: "asc" },
       });
 
@@ -933,6 +968,89 @@ export async function getProjectMessagesAction(
         success: true,
         unreadMentionCount: 0,
         assignees: [],
+        hasMore: false,
+        isDelta: true,
+        messages: deltaMessages.map((m) => ({
+          id: m.id,
+          projectId: m.projectId,
+          userId: m.userId,
+          content: m.content || "",
+          imageUrl: m.imageUrl || null,
+          replyToId: m.replyToId,
+          replyTo: m.replyTo
+            ? {
+                id: m.replyTo.id,
+                content: m.replyTo.content || null,
+                imageUrl: (m.replyTo as any).imageUrl || null,
+                userId: m.replyTo.userId,
+                userName: m.replyTo.user?.name || "Member",
+              }
+            : null,
+          mentionedUserIds: m.mentionedUserIds,
+          createdAt: m.createdAt.toISOString(),
+          user: m.user,
+        })),
+      };
+    }
+
+    // 2. Pagination: Fetch older messages WHERE created_at < earliest_loaded_timestamp
+    if (beforeTimestamp) {
+      const olderMessages = await prisma.projectMessage.findMany({
+        where: {
+          projectId,
+          createdAt: { lt: new Date(beforeTimestamp) },
+        },
+        select: messageSelect,
+        orderBy: { createdAt: "desc" },
+        take: limit,
+      });
+
+      olderMessages.reverse();
+
+      return {
+        success: true,
+        unreadMentionCount: 0,
+        assignees: [],
+        hasMore: olderMessages.length === limit,
+        messages: olderMessages.map((m) => ({
+          id: m.id,
+          projectId: m.projectId,
+          userId: m.userId,
+          content: m.content || "",
+          imageUrl: m.imageUrl || null,
+          replyToId: m.replyToId,
+          replyTo: m.replyTo
+            ? {
+                id: m.replyTo.id,
+                content: m.replyTo.content || null,
+                imageUrl: (m.replyTo as any).imageUrl || null,
+                userId: m.replyTo.userId,
+                userName: m.replyTo.user?.name || "Member",
+              }
+            : null,
+          mentionedUserIds: m.mentionedUserIds,
+          createdAt: m.createdAt.toISOString(),
+          user: m.user,
+        })),
+      };
+    }
+
+    // 3. Fallback polling tick with no timestamps (capped at latest messages)
+    if (isPoll) {
+      const rawMessages = await prisma.projectMessage.findMany({
+        where: { projectId },
+        select: messageSelect,
+        orderBy: { createdAt: "desc" },
+        take: limit,
+      });
+
+      const messages = rawMessages.reverse();
+
+      return {
+        success: true,
+        unreadMentionCount: 0,
+        assignees: [],
+        hasMore: rawMessages.length === limit,
         messages: messages.map((m) => ({
           id: m.id,
           projectId: m.projectId,
@@ -956,8 +1074,8 @@ export async function getProjectMessagesAction(
       };
     }
 
-    // Full load: Execute queries in parallel for high speed
-    const [chatRead, messages, projectTasks] = await Promise.all([
+    // 4. Full initial load: Limit to latest 40 messages + fetch assignees & unread stats
+    const [chatRead, rawMessages, projectTasks] = await Promise.all([
       prisma.projectChatRead.findUnique({
         where: {
           userId_projectId: {
@@ -969,34 +1087,9 @@ export async function getProjectMessagesAction(
       }),
       prisma.projectMessage.findMany({
         where: { projectId },
-        include: {
-          user: {
-            select: {
-              id: true,
-              name: true,
-              username: true,
-              role: true,
-              position: true,
-              department: true,
-              avatarUrl: true,
-            },
-          },
-          replyTo: {
-            select: {
-              id: true,
-              content: true,
-              imageUrl: true,
-              userId: true,
-              user: {
-                select: {
-                  id: true,
-                  name: true,
-                },
-              },
-            },
-          },
-        },
-        orderBy: { createdAt: "asc" },
+        select: messageSelect,
+        orderBy: { createdAt: "desc" },
+        take: limit,
       }),
       prisma.task.findMany({
         where: { projectId },
@@ -1015,6 +1108,9 @@ export async function getProjectMessagesAction(
         },
       }),
     ]);
+
+    const messages = rawMessages.reverse();
+    const hasMore = rawMessages.length === limit;
 
     // Calculate unread message and tag counts in-memory without extra DB roundtrip
     const lastRead = chatRead?.lastReadAt;
@@ -1069,6 +1165,7 @@ export async function getProjectMessagesAction(
       unreadMentionCount: unreadTagCount,
       unreadMessageCount,
       unreadTagCount,
+      hasMore,
       assignees: Array.from(assigneesMap.values()),
       messages: messages.map((m) => ({
         id: m.id,
@@ -1099,6 +1196,7 @@ export async function getProjectMessagesAction(
       messages: [],
       assignees: [],
       unreadMentionCount: 0,
+      hasMore: false,
     };
   }
 }

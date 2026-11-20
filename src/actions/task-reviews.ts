@@ -417,49 +417,161 @@ export async function getTaskReviewDetailsAction(taskId: string) {
 /**
  * Fetch Task Messages & Participants for Task Chat Thread
  */
-export async function getTaskMessagesAction(taskId: string, isPoll = false) {
+export interface GetTaskMessagesOptions {
+  isPoll?: boolean;
+  afterTimestamp?: string | null;
+  beforeTimestamp?: string | null;
+  limit?: number;
+}
+
+export async function getTaskMessagesAction(
+  taskId: string,
+  optionsOrIsPoll: boolean | GetTaskMessagesOptions = false
+) {
   try {
     const currentUser = await getCurrentUser();
     if (!currentUser) {
-      return { success: false, error: "Unauthorized", messages: [], participants: [], unreadMentionCount: 0 };
+      return { success: false, error: "Unauthorized", messages: [], participants: [], unreadMentionCount: 0, hasMore: false };
     }
 
     if (!taskId) {
-      return { success: false, error: "Task ID is required", messages: [], participants: [], unreadMentionCount: 0 };
+      return { success: false, error: "Task ID is required", messages: [], participants: [], unreadMentionCount: 0, hasMore: false };
     }
 
-    if (isPoll) {
-      const messages = await prisma.taskMessage.findMany({
-        where: { taskId },
-        include: {
+    const isPoll = typeof optionsOrIsPoll === "boolean" ? optionsOrIsPoll : !!optionsOrIsPoll?.isPoll;
+    const afterTimestamp = typeof optionsOrIsPoll === "object" ? optionsOrIsPoll.afterTimestamp : null;
+    const beforeTimestamp = typeof optionsOrIsPoll === "object" ? optionsOrIsPoll.beforeTimestamp : null;
+    const limit = typeof optionsOrIsPoll === "object" && optionsOrIsPoll.limit ? optionsOrIsPoll.limit : 40;
+
+    // Lean column selection for TaskMessage to avoid Supabase DB egress spikes
+    const messageSelect = {
+      id: true,
+      taskId: true,
+      userId: true,
+      content: true,
+      imageUrl: true,
+      replyToId: true,
+      mentionedUserIds: true,
+      createdAt: true,
+      user: {
+        select: {
+          id: true,
+          name: true,
+          username: true,
+          role: true,
+          position: true,
+          department: true,
+          avatarUrl: true,
+        },
+      },
+      replyTo: {
+        select: {
+          id: true,
+          content: true,
+          imageUrl: true,
+          userId: true,
           user: {
             select: {
               id: true,
               name: true,
-              username: true,
-              role: true,
-              position: true,
-              department: true,
-              avatarUrl: true,
-            },
-          },
-          replyTo: {
-            select: {
-              id: true,
-              content: true,
-              imageUrl: true,
-              userId: true,
-              user: {
-                select: {
-                  id: true,
-                  name: true,
-                },
-              },
             },
           },
         },
+      },
+    };
+
+    // 1. Delta Polling: WHERE created_at > latest_loaded_timestamp (fetches ONLY new messages)
+    if (afterTimestamp) {
+      const deltaMessages = await prisma.taskMessage.findMany({
+        where: {
+          taskId,
+          createdAt: { gt: new Date(afterTimestamp) },
+        },
+        select: messageSelect,
         orderBy: { createdAt: "asc" },
       });
+
+      return {
+        success: true,
+        unreadMentionCount: 0,
+        participants: [],
+        hasMore: false,
+        isDelta: true,
+        messages: deltaMessages.map((m) => ({
+          id: m.id,
+          taskId: m.taskId,
+          userId: m.userId,
+          content: m.content || "",
+          imageUrl: m.imageUrl || null,
+          replyToId: m.replyToId,
+          replyTo: m.replyTo
+            ? {
+                id: m.replyTo.id,
+                content: m.replyTo.content || null,
+                imageUrl: (m.replyTo as any).imageUrl || null,
+                userId: m.replyTo.userId,
+                userName: m.replyTo.user?.name || "Member",
+              }
+            : null,
+          mentionedUserIds: m.mentionedUserIds,
+          createdAt: m.createdAt.toISOString(),
+          user: m.user,
+        })),
+      };
+    }
+
+    // 2. Pagination: Fetch older messages WHERE created_at < earliest_loaded_timestamp
+    if (beforeTimestamp) {
+      const olderMessages = await prisma.taskMessage.findMany({
+        where: {
+          taskId,
+          createdAt: { lt: new Date(beforeTimestamp) },
+        },
+        select: messageSelect,
+        orderBy: { createdAt: "desc" },
+        take: limit,
+      });
+
+      olderMessages.reverse();
+
+      return {
+        success: true,
+        unreadMentionCount: 0,
+        participants: [],
+        hasMore: olderMessages.length === limit,
+        messages: olderMessages.map((m) => ({
+          id: m.id,
+          taskId: m.taskId,
+          userId: m.userId,
+          content: m.content || "",
+          imageUrl: m.imageUrl || null,
+          replyToId: m.replyToId,
+          replyTo: m.replyTo
+            ? {
+                id: m.replyTo.id,
+                content: m.replyTo.content || null,
+                imageUrl: (m.replyTo as any).imageUrl || null,
+                userId: m.replyTo.userId,
+                userName: m.replyTo.user?.name || "Member",
+              }
+            : null,
+          mentionedUserIds: m.mentionedUserIds,
+          createdAt: m.createdAt.toISOString(),
+          user: m.user,
+        })),
+      };
+    }
+
+    // 3. Fallback polling tick with no timestamps (capped at latest messages)
+    if (isPoll) {
+      const rawMessages = await prisma.taskMessage.findMany({
+        where: { taskId },
+        select: messageSelect,
+        orderBy: { createdAt: "desc" },
+        take: limit,
+      });
+
+      const messages = rawMessages.reverse();
 
       return {
         success: true,
@@ -485,13 +597,18 @@ export async function getTaskMessagesAction(taskId: string, isPoll = false) {
         })),
         participants: [],
         unreadMentionCount: 0,
+        hasMore: rawMessages.length === limit,
       };
     }
 
-    const [task, chatRead, messages] = await Promise.all([
+    // 4. Full initial load: Limit to latest 40 messages + fetch task participants & unread stats
+    const [task, chatRead, rawMessages] = await Promise.all([
       prisma.task.findUnique({
         where: { id: taskId },
-        include: {
+        select: {
+          id: true,
+          reviewerId: true,
+          reviewerIds: true,
           user: {
             select: {
               id: true,
@@ -504,17 +621,6 @@ export async function getTaskMessagesAction(taskId: string, isPoll = false) {
             },
           },
           createdBy: {
-            select: {
-              id: true,
-              name: true,
-              username: true,
-              role: true,
-              position: true,
-              department: true,
-              avatarUrl: true,
-            },
-          },
-          reviewer: {
             select: {
               id: true,
               name: true,
@@ -538,40 +644,18 @@ export async function getTaskMessagesAction(taskId: string, isPoll = false) {
       }),
       prisma.taskMessage.findMany({
         where: { taskId },
-        include: {
-          user: {
-            select: {
-              id: true,
-              name: true,
-              username: true,
-              role: true,
-              position: true,
-              department: true,
-              avatarUrl: true,
-            },
-          },
-          replyTo: {
-            select: {
-              id: true,
-              content: true,
-              imageUrl: true,
-              userId: true,
-              user: {
-                select: {
-                  id: true,
-                  name: true,
-                },
-              },
-            },
-          },
-        },
-        orderBy: { createdAt: "asc" },
+        select: messageSelect,
+        orderBy: { createdAt: "desc" },
+        take: limit,
       }),
     ]);
 
     if (!task) {
-      return { success: false, error: "Task not found", messages: [], participants: [], unreadMentionCount: 0 };
+      return { success: false, error: "Task not found", messages: [], participants: [], unreadMentionCount: 0, hasMore: false };
     }
+
+    const messages = rawMessages.reverse();
+    const hasMore = rawMessages.length === limit;
 
     // Calculate unread message and tag counts
     const lastRead = chatRead?.lastReadAt;
@@ -659,6 +743,7 @@ export async function getTaskMessagesAction(taskId: string, isPoll = false) {
       unreadMentionCount: unreadTagCount,
       unreadMessageCount,
       unreadTagCount,
+      hasMore,
       participants: Array.from(participantsMap.values()),
       messages: messages.map((m) => ({
         id: m.id,
@@ -683,7 +768,7 @@ export async function getTaskMessagesAction(taskId: string, isPoll = false) {
     };
   } catch (err: any) {
     console.error("Error fetching task messages:", err);
-    return { success: false, error: err.message || "Gagal memuat pesan chat.", messages: [], participants: [], unreadMentionCount: 0 };
+    return { success: false, error: err.message || "Gagal memuat pesan chat.", messages: [], participants: [], unreadMentionCount: 0, hasMore: false };
   }
 }
 
@@ -944,6 +1029,7 @@ export async function getTasksUnreadMentionsAction(taskIds: string[]) {
       return { success: true, unreadCounts: {} };
     }
 
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
     const [chatReads, unreadMessages] = await Promise.all([
       prisma.taskChatRead.findMany({
         where: {
@@ -959,6 +1045,7 @@ export async function getTasksUnreadMentionsAction(taskIds: string[]) {
         where: {
           taskId: { in: taskIds },
           userId: { not: currentUser.id },
+          createdAt: { gte: thirtyDaysAgo },
         },
         select: {
           id: true,

@@ -393,8 +393,9 @@ export async function logoutAction() {
 
 /**
  * Upload Avatar Image Action
- * Converts uploaded image to a Base64 Data URL string and saves directly to the database.
- * Enforces a strict 400KB file size limit and valid image MIME types (JPG, PNG, WebP, GIF).
+ * Uploads compressed image directly to Supabase Storage bucket 'avatars'.
+ * Strictly enforces ZERO Base64 strings in PostgreSQL to protect Supabase Egress limits.
+ * Enforces a strict 400KB file size limit and server-verified image MIME types (JPG, PNG, WebP).
  */
 export async function uploadAvatarAction(formData: FormData) {
   const currentUser = await getCurrentUser();
@@ -436,25 +437,70 @@ export async function uploadAvatarAction(formData: FormData) {
     const isElevated = currentUser.role === "MANAGEMENT" || currentUser.role === "ADMIN";
     const targetUserId = isElevated && requestedTargetUserId ? requestedTargetUserId : currentUser.id;
 
-    // 4. Construct canonical Base64 Data URL using server-verified MIME type
-    const base64Data = buffer.toString("base64");
-    const base64Url = `data:${inspection.mime};base64,${base64Data}`;
+    // 4. Upload physical file to Supabase Storage bucket 'avatars' (Cached CDN)
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://bccuecstegfnpbwzgqtx.supabase.co";
+    const rawKey =
+      process.env.SUPABASE_SERVICE_ROLE_KEY ||
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    const serviceKey = rawKey?.trim();
+
+    if (!supabaseUrl || !serviceKey) {
+      return {
+        success: false,
+        error:
+          "Konfigurasi Supabase Storage belum lengkap (kunci API anon/service role diperlukan). Base64 tidak diizinkan demi efisiensi egress database.",
+      };
+    }
+
+    const { createClient } = await import("@supabase/supabase-js");
+    const supabase = createClient(supabaseUrl, serviceKey, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+
+    const ext = inspection.mime === "image/webp" ? "webp" : inspection.mime === "image/png" ? "png" : "jpg";
+    const fileName = `${targetUserId}_${Date.now()}_${Math.random().toString(36).substring(2, 8)}.${ext}`;
+
+    const { data: storageData, error: storageError } = await supabase.storage
+      .from("avatars")
+      .upload(fileName, buffer, {
+        contentType: inspection.mime,
+        cacheControl: "31536000",
+        upsert: true,
+      });
+
+    if (storageError || !storageData?.path) {
+      console.error("[UploadAvatar] Supabase Storage upload error:", storageError?.message);
+      return {
+        success: false,
+        error: `Gagal mengunggah foto profil ke Supabase Storage: ${storageError?.message || "Kesalahan penyimpanan."}`,
+      };
+    }
+
+    const { data: urlData } = supabase.storage.from("avatars").getPublicUrl(storageData.path);
+    const cdnAvatarUrl = urlData?.publicUrl;
+
+    if (!cdnAvatarUrl) {
+      return {
+        success: false,
+        error: "Gagal mendapatkan URL CDN publik untuk foto profil dari Supabase Storage.",
+      };
+    }
 
     // 5. For STAFF users: Do NOT save directly to user table!
     // Staff profile changes (including avatar photo) require Admin approval via ProfileUpdateRequest.
     if (!isElevated) {
       return {
         success: true,
-        url: base64Url,
-        message: "Foto profil berhasil diverifikasi! Klik 'Ajukan Perubahan' di bawah agar Admin dapat meninjau dan menyetujuinya.",
+        url: cdnAvatarUrl,
+        message: "Foto profil berhasil diunggah ke Supabase Storage! Klik 'Ajukan Perubahan' di bawah agar Admin dapat meninjau dan menyetujuinya.",
       };
     }
 
-    // Save directly for Admin / Management
+    // Save CDN URL directly for Admin / Management
     await prisma.user.update({
       where: { id: targetUserId },
       data: {
-        avatarUrl: base64Url,
+        avatarUrl: cdnAvatarUrl,
       },
     });
 
@@ -464,14 +510,14 @@ export async function uploadAvatarAction(formData: FormData) {
 
     return {
       success: true,
-      url: base64Url,
-      message: "Foto profil berhasil diverifikasi dan disimpan!",
+      url: cdnAvatarUrl,
+      message: "Foto profil berhasil disimpan ke Supabase Storage!",
     };
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error saving avatar upload:", error);
     return {
       success: false,
-      error: "Terjadi kesalahan saat memverifikasi dan menyimpan foto profil.",
+      error: error?.message || "Terjadi kesalahan saat memverifikasi dan menyimpan foto profil.",
     };
   }
 }
@@ -506,7 +552,7 @@ export async function updateProfileAction(formData: FormData) {
   if (avatarUrl && !isValidAvatarUrl(avatarUrl)) {
     return {
       success: false,
-      error: "Format URL Avatar tidak valid. Gunakan URL https:// atau gambar Base64 yang valid.",
+      error: "Format URL Avatar tidak valid. Gunakan URL https:// yang valid dari Supabase Storage (Base64 tidak diizinkan).",
     };
   }
 
@@ -874,7 +920,7 @@ export async function adminUpdateStaffProfileAction(formData: FormData) {
   if (avatarUrl && !isValidAvatarUrl(avatarUrl)) {
     return {
       success: false,
-      error: "Format URL Avatar tidak valid. Gunakan URL https:// atau gambar Base64 yang valid.",
+      error: "Format URL Avatar tidak valid. Gunakan URL https:// yang valid dari Supabase Storage (Base64 tidak diizinkan).",
     };
   }
 

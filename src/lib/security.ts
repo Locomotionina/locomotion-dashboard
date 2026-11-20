@@ -146,7 +146,8 @@ function containsExecutablePayload(buffer: Buffer): boolean {
 
 /**
  * Server-side validation for avatar URLs.
- * Strictly permits HTTPS/HTTP web URLs or validated Base64 Data URLs with image MIME types.
+ * Strictly permits HTTPS/HTTP web URLs (e.g. Supabase Storage CDN URLs or Dicebear SVG URLs).
+ * Strictly forbids Base64 Data URLs (data:) to eliminate database bloat and Supabase egress spikes.
  * Blocks javascript:, vbscript:, data:text/html, etc.
  */
 export function isValidAvatarUrl(url: string | null | undefined): boolean {
@@ -154,10 +155,9 @@ export function isValidAvatarUrl(url: string | null | undefined): boolean {
   const trimmed = url.trim();
   if (trimmed.length === 0) return false;
 
-  // 1. Data URLs must strictly match image base64
+  // 1. Data URLs / Base64 are strictly forbidden to ensure zero DB storage bloat and minimal egress
   if (trimmed.startsWith("data:")) {
-    const dataUrlRegex = /^data:image\/(jpeg|png|webp|gif);base64,[A-Za-z0-9+/=]+$/;
-    return dataUrlRegex.test(trimmed);
+    return false;
   }
 
   // 2. HTTP/HTTPS URLs

@@ -287,3 +287,51 @@ export async function uploadChatImage(
 
   return json.url;
 }
+
+/**
+ * Uploads compressed avatar image directly to Supabase Storage 'avatars' bucket
+ */
+export async function uploadAvatarToStorage(
+  blob: Blob,
+  targetUserId: string
+): Promise<string> {
+  const extension = blob.type === "image/webp" ? "webp" : blob.type === "image/png" ? "png" : "jpg";
+  const fileName = `${targetUserId}_${Date.now()}_${Math.random().toString(36).substring(2, 8)}.${extension}`;
+
+  const supabase = getSupabaseBrowserClient();
+  if (supabase) {
+    try {
+      const { data, error } = await supabase.storage
+        .from("avatars")
+        .upload(fileName, blob, {
+          contentType: blob.type || "image/webp",
+          cacheControl: "31536000",
+          upsert: true,
+        });
+
+      if (!error && data?.path) {
+        const { data: urlData } = supabase.storage
+          .from("avatars")
+          .getPublicUrl(data.path);
+        if (urlData?.publicUrl) {
+          return urlData.publicUrl;
+        }
+      }
+    } catch (err) {
+      console.warn("Direct Supabase Storage avatar upload failed, falling back to Server Action:", err);
+    }
+  }
+
+  // Fallback to Server Action
+  const formData = new FormData();
+  formData.append("file", blob, fileName);
+  formData.append("targetUserId", targetUserId);
+
+  const { uploadAvatarAction } = await import("@/actions/auth");
+  const res = await uploadAvatarAction(formData);
+  if (!res.success || !res.url) {
+    throw new Error(res.error || "Gagal mengunggah foto profil ke Supabase Storage.");
+  }
+
+  return res.url;
+}

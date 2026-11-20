@@ -218,6 +218,12 @@ export function ProjectDiscussionThread({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
+  // Pagination & Delta Polling Timestamps (to minimize Supabase PostgreSQL Egress)
+  const [hasMore, setHasMore] = useState(false);
+  const [isLoadingOlder, setIsLoadingOlder] = useState(false);
+  const latestLoadedTimestampRef = useRef<string | null>(null);
+  const earliestLoadedTimestampRef = useRef<string | null>(null);
+
   // Auto-dismiss error alert after 5 seconds
   useEffect(() => {
     if (errorMessage) {
@@ -331,14 +337,19 @@ export function ProjectDiscussionThread({
     }
   }, []);
 
-  // Fetch messages from Server Action
+  // Fetch messages from Server Action (Supports initial load & delta polling)
   const fetchMessages = useCallback(
     async (isBackground = false) => {
       if (!projectId) return;
       if (!isBackground) setIsLoading(true);
 
       try {
-        const res = await getProjectMessagesAction(projectId, isBackground);
+        const res = await getProjectMessagesAction(projectId, {
+          isPoll: isBackground,
+          afterTimestamp: isBackground ? latestLoadedTimestampRef.current : null,
+          limit: 40,
+        });
+
         if (res.success && res.messages) {
           if (res.assignees && res.assignees.length > 0) {
             setAssignees(res.assignees);
@@ -354,28 +365,39 @@ export function ProjectDiscussionThread({
             }
           }
 
-          setMessages((prev) => {
-            const currentIds = new Set(prev.map((m) => m.id));
-            const newMsgs = res.messages.filter((m: any) => !currentIds.has(m.id));
-            const pendingOptimistic = prev.filter((m) => m.id.startsWith("optimistic-"));
-
-            if (
-              newMsgs.length === 0 &&
-              prev.length === res.messages.length + pendingOptimistic.length
-            ) {
-              return prev;
+          if (!isBackground) {
+            // Initial full load (latest 40 messages)
+            setHasMore(Boolean(res.hasMore));
+            if (res.messages.length > 0) {
+              earliestLoadedTimestampRef.current = res.messages[0].createdAt;
+              latestLoadedTimestampRef.current = res.messages[res.messages.length - 1].createdAt;
             }
+            setMessages(res.messages as ProjectChatMessage[]);
+          } else if (res.messages.length > 0) {
+            // Delta background poll: Append ONLY new messages
+            setMessages((prev) => {
+              const currentIds = new Set(prev.map((m) => m.id));
+              const incomingNew = (res.messages as ProjectChatMessage[]).filter(
+                (m) => !currentIds.has(m.id)
+              );
+              if (incomingNew.length === 0) return prev;
 
-            if (isInitialLoadedRef.current && newMsgs.length > 0) {
+              // Filter out matching optimistic messages
+              const pendingOptimistic = prev.filter(
+                (m) =>
+                  m.id.startsWith("optimistic-") &&
+                  !incomingNew.some((inc) => inc.content === m.content && inc.userId === m.userId)
+              );
+
+              const nonOptimistic = prev.filter((m) => !m.id.startsWith("optimistic-"));
+              return [...nonOptimistic, ...incomingNew, ...pendingOptimistic];
+            });
+
+            latestLoadedTimestampRef.current = res.messages[res.messages.length - 1].createdAt;
+            if (isInitialLoadedRef.current) {
               setTimeout(() => scrollToBottom("smooth"), 100);
             }
-
-            // Return server messages along with any in-flight optimistic messages
-            return [
-              ...(res.messages as ProjectChatMessage[]),
-              ...pendingOptimistic,
-            ];
-          });
+          }
         }
       } catch (err) {
         console.error("Error fetching project messages:", err);
@@ -387,6 +409,42 @@ export function ProjectDiscussionThread({
     },
     [projectId, scrollToBottom, onChatRead]
   );
+
+  // Load older messages (Pagination for history beyond initial 40 messages)
+  const loadOlderMessages = async () => {
+    if (!projectId || !earliestLoadedTimestampRef.current || isLoadingOlder) return;
+    setIsLoadingOlder(true);
+    const scrollContainer = scrollContainerRef.current;
+    const prevScrollHeight = scrollContainer?.scrollHeight || 0;
+    const prevScrollTop = scrollContainer?.scrollTop || 0;
+
+    try {
+      const res = await getProjectMessagesAction(projectId, {
+        beforeTimestamp: earliestLoadedTimestampRef.current,
+        limit: 40,
+      });
+
+      if (res.success && res.messages && res.messages.length > 0) {
+        setMessages((prev) => [...(res.messages as ProjectChatMessage[]), ...prev]);
+        earliestLoadedTimestampRef.current = res.messages[0].createdAt;
+        setHasMore(Boolean(res.hasMore));
+
+        // Preserve scroll position seamlessly
+        requestAnimationFrame(() => {
+          if (scrollContainer) {
+            const newScrollHeight = scrollContainer.scrollHeight;
+            scrollContainer.scrollTop = prevScrollTop + (newScrollHeight - prevScrollHeight);
+          }
+        });
+      } else {
+        setHasMore(false);
+      }
+    } catch (err) {
+      console.error("Error loading older messages:", err);
+    } finally {
+      setIsLoadingOlder(false);
+    }
+  };
 
   // Initial load and Real-Time Setup
   useEffect(() => {
@@ -434,6 +492,8 @@ export function ProjectDiscussionThread({
                 return [...prev, incomingMsg];
               });
 
+              latestLoadedTimestampRef.current = incomingMsg.createdAt;
+
               // Instantly update unread message & tag counts if sent by someone else
               if (currentUser?.id && incomingMsg.userId !== currentUser.id) {
                 setUnreadMessageCount((prev) => prev + 1);
@@ -457,17 +517,18 @@ export function ProjectDiscussionThread({
       }
     }
 
-    // 3. Lightweight background polling (every 5 seconds) as fallback
+    // 3. Delta Background Polling:
+    // Only poll when the tab is visible; pause when tab/modal is hidden to avoid egress waste
     const pollInterval = setInterval(() => {
-      if (typeof document !== "undefined" && document.visibilityState === "visible") {
+      if (typeof document !== "undefined" && !document.hidden && document.visibilityState === "visible") {
         fetchMessages(true);
       }
-    }, 5000);
+    }, 6000);
 
     const handleVisibilityChange = () => {
-      if (document.visibilityState === "visible") {
+      if (typeof document !== "undefined" && !document.hidden && document.visibilityState === "visible") {
         fetchMessages(true);
-        markProjectChatAsReadAction(projectId);
+        markProjectChatAsReadAction(projectId).catch(() => {});
       }
     };
     document.addEventListener("visibilitychange", handleVisibilityChange);
@@ -825,6 +886,27 @@ export function ProjectDiscussionThread({
         ref={scrollContainerRef}
         className="max-h-80 min-h-[180px] overflow-y-auto custom-scrollbar p-3 sm:p-4 space-y-3.5 bg-background/40"
       >
+        {/* Load Older Messages Button (Pagination beyond initial 40 messages) */}
+        {hasMore && (
+          <div className="flex justify-center py-1">
+            <button
+              type="button"
+              onClick={loadOlderMessages}
+              disabled={isLoadingOlder}
+              className="text-[11px] text-blue-600 dark:text-blue-400 hover:text-blue-700 bg-secondary/80 hover:bg-secondary border border-border/60 px-3 py-1 rounded-full font-medium transition-colors disabled:opacity-50 flex items-center gap-1.5 shadow-2xs cursor-pointer"
+            >
+              {isLoadingOlder ? (
+                <>
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  <span>Memuat pesan...</span>
+                </>
+              ) : (
+                <span>Muat pesan sebelumnya</span>
+              )}
+            </button>
+          </div>
+        )}
+
         {isLoading && messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-10 text-muted-foreground text-xs gap-2">
             <Loader2 className="h-5 w-5 animate-spin text-blue-500" />

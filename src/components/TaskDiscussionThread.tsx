@@ -165,6 +165,13 @@ export function TaskDiscussionThread({
   const [unreadCount, setUnreadCount] = useState(0);
   const [unreadMessageCount, setUnreadMessageCount] = useState(0);
   const [unreadTagCount, setUnreadTagCount] = useState(0);
+
+  // Pagination & Delta Polling Timestamps (to minimize Supabase PostgreSQL Egress)
+  const [hasMore, setHasMore] = useState(false);
+  const [isLoadingOlder, setIsLoadingOlder] = useState(false);
+  const latestLoadedTimestampRef = useRef<string | null>(null);
+  const earliestLoadedTimestampRef = useRef<string | null>(null);
+
   const [replyingTo, setReplyingTo] = useState<{
     id: string;
     senderName: string;
@@ -238,14 +245,19 @@ export function TaskDiscussionThread({
     [participants]
   );
 
-  // Fetch messages from Server Action
+  // Fetch messages from Server Action (Supports initial load & delta polling)
   const fetchMessages = useCallback(
     async (isBackground = false) => {
       if (!taskId) return;
       if (!isBackground) setIsLoading(true);
 
       try {
-        const res = await getTaskMessagesAction(taskId, isBackground);
+        const res = await getTaskMessagesAction(taskId, {
+          isPoll: isBackground,
+          afterTimestamp: isBackground ? latestLoadedTimestampRef.current : null,
+          limit: 40,
+        });
+
         if (res.success && res.messages) {
           if (res.participants && res.participants.length > 0) {
             setParticipants(res.participants);
@@ -258,24 +270,39 @@ export function TaskDiscussionThread({
             onUnreadCountChange?.(res.unreadMentionCount);
           }
 
-          setMessages((prev) => {
-            const currentIds = new Set(prev.map((m) => m.id));
-            const newMsgs = res.messages.filter((m: any) => !currentIds.has(m.id));
-            const pendingOptimistic = prev.filter((m) => m.id.startsWith("optimistic-"));
-
-            if (
-              newMsgs.length === 0 &&
-              prev.length === res.messages.length + pendingOptimistic.length
-            ) {
-              return prev;
+          if (!isBackground) {
+            // Initial full load (latest 40 messages)
+            setHasMore(Boolean(res.hasMore));
+            if (res.messages.length > 0) {
+              earliestLoadedTimestampRef.current = res.messages[0].createdAt;
+              latestLoadedTimestampRef.current = res.messages[res.messages.length - 1].createdAt;
             }
+            setMessages(res.messages as TaskChatMessageItem[]);
+          } else if (res.messages.length > 0) {
+            // Delta background poll: Append ONLY new messages
+            setMessages((prev) => {
+              const currentIds = new Set(prev.map((m) => m.id));
+              const incomingNew = (res.messages as TaskChatMessageItem[]).filter(
+                (m) => !currentIds.has(m.id)
+              );
+              if (incomingNew.length === 0) return prev;
 
-            if (isInitialLoadedRef.current && newMsgs.length > 0) {
+              // Filter out matching optimistic messages
+              const pendingOptimistic = prev.filter(
+                (m) =>
+                  m.id.startsWith("optimistic-") &&
+                  !incomingNew.some((inc) => inc.content === m.content && inc.userId === m.userId)
+              );
+
+              const nonOptimistic = prev.filter((m) => !m.id.startsWith("optimistic-"));
+              return [...nonOptimistic, ...incomingNew, ...pendingOptimistic];
+            });
+
+            latestLoadedTimestampRef.current = res.messages[res.messages.length - 1].createdAt;
+            if (isInitialLoadedRef.current) {
               setTimeout(() => scrollToBottom("smooth"), 100);
             }
-
-            return [...res.messages, ...pendingOptimistic];
-          });
+          }
         }
       } catch (err) {
         console.error("Error fetching task messages:", err);
@@ -285,6 +312,42 @@ export function TaskDiscussionThread({
     },
     [taskId, scrollToBottom, onUnreadCountChange]
   );
+
+  // Load older messages (Pagination for history beyond initial 40 messages)
+  const loadOlderMessages = async () => {
+    if (!taskId || !earliestLoadedTimestampRef.current || isLoadingOlder) return;
+    setIsLoadingOlder(true);
+    const scrollContainer = scrollContainerRef.current;
+    const prevScrollHeight = scrollContainer?.scrollHeight || 0;
+    const prevScrollTop = scrollContainer?.scrollTop || 0;
+
+    try {
+      const res = await getTaskMessagesAction(taskId, {
+        beforeTimestamp: earliestLoadedTimestampRef.current,
+        limit: 40,
+      });
+
+      if (res.success && res.messages && res.messages.length > 0) {
+        setMessages((prev) => [...(res.messages as TaskChatMessageItem[]), ...prev]);
+        earliestLoadedTimestampRef.current = res.messages[0].createdAt;
+        setHasMore(Boolean(res.hasMore));
+
+        // Preserve scroll position
+        requestAnimationFrame(() => {
+          if (scrollContainer) {
+            const newScrollHeight = scrollContainer.scrollHeight;
+            scrollContainer.scrollTop = prevScrollTop + (newScrollHeight - prevScrollHeight);
+          }
+        });
+      } else {
+        setHasMore(false);
+      }
+    } catch (err) {
+      console.error("Error loading older task messages:", err);
+    } finally {
+      setIsLoadingOlder(false);
+    }
+  };
 
   // Realtime subscription & initial fetch
   useEffect(() => {
@@ -313,13 +376,23 @@ export function TaskDiscussionThread({
         .subscribe();
     }
 
-    // Periodic polling fallback
+    // Periodic delta polling: ONLY when tab is visible; pause when tab/modal is inactive
     const pollInterval = setInterval(() => {
-      fetchMessages(true);
-    }, 5000);
+      if (typeof document !== "undefined" && !document.hidden && document.visibilityState === "visible") {
+        fetchMessages(true);
+      }
+    }, 6000);
+
+    const handleVisibilityChange = () => {
+      if (typeof document !== "undefined" && !document.hidden && document.visibilityState === "visible") {
+        fetchMessages(true);
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
       clearInterval(pollInterval);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
       if (channel && supabase) {
         supabase.removeChannel(channel);
       }
@@ -611,6 +684,27 @@ export function TaskDiscussionThread({
         ref={scrollContainerRef}
         className="flex-1 overflow-y-auto custom-scrollbar p-3 sm:p-4 space-y-3 min-h-0 bg-background/30"
       >
+        {/* Load Older Messages Button (Pagination beyond initial 40 messages) */}
+        {hasMore && (
+          <div className="flex justify-center py-1">
+            <button
+              type="button"
+              onClick={loadOlderMessages}
+              disabled={isLoadingOlder}
+              className="text-[11px] text-purple-600 dark:text-purple-400 hover:text-purple-700 bg-secondary/80 hover:bg-secondary border border-border/60 px-3 py-1 rounded-full font-medium transition-colors disabled:opacity-50 flex items-center gap-1.5 shadow-2xs cursor-pointer"
+            >
+              {isLoadingOlder ? (
+                <>
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  <span>Memuat pesan...</span>
+                </>
+              ) : (
+                <span>Muat pesan sebelumnya</span>
+              )}
+            </button>
+          </div>
+        )}
+
         {isLoading && messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-12 text-muted-foreground text-xs gap-2">
             <Loader2 className="h-5 w-5 animate-spin text-purple-500" />
